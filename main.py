@@ -16,7 +16,7 @@ class BTFGuardBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
     async def setup_hook(self):
         await self.tree.sync()
-        print("| BTF | Rol Koruma ve Karantina Sistemi Aktif.")
+        print("| BTF | Kesin Yetki ve Koruma Sistemi Aktif.")
 
 bot = BTFGuardBot()
 
@@ -28,9 +28,10 @@ KARANTINA_ROL_ID = None
 
 YASAKLI_KELIMELER = ["kufur1", "reklamlinki"]
 ROL_SILME_KONTROL = {}
+KOMUT_IZINLERI = {}
 
+# Sadece ve sadece "Bot Yönetim +" rolü olanlar işlem yapabilir (Adminler bile geçemez)
 def bot_yonetim_kontrol(interaction: discord.Interaction) -> bool:
-    if interaction.user.guild_permissions.administrator: return True
     return discord.utils.get(interaction.user.roles, name="Bot Yönetim +") is not None
 
 class TicketCloseView(discord.ui.View):
@@ -61,7 +62,7 @@ class GlobalGuardActionView(discord.ui.View):
 
     @discord.ui.button(label="Reddet", style=discord.ButtonStyle.green, custom_id="g_app")
     async def app(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not bot_yonetim_kontrol(interaction): return await interaction.response.send_message("Yetkiniz yok!", ephemeral=True)
+        if not bot_yonetim_kontrol(interaction): return await interaction.response.send_message("❌ Yalnızca **Bot Yönetim +** rolüne sahip olanlar onaylayabilir!", ephemeral=True)
         for child in self.children: child.disabled = True
         emb = interaction.message.embeds[0]; emb.color = discord.Color.green(); emb.add_field(name="Durum", value=f"Reddedildi - {interaction.user.mention}", inline=False)
         await interaction.message.edit(view=self, embed=emb)
@@ -69,7 +70,7 @@ class GlobalGuardActionView(discord.ui.View):
 
     @discord.ui.button(label="Tüm Sunuculardan Yasakla", style=discord.ButtonStyle.red, custom_id="g_ban")
     async def gban(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not bot_yonetim_kontrol(interaction): return await interaction.response.send_message("Yetkiniz yok!", ephemeral=True)
+        if not bot_yonetim_kontrol(interaction): return await interaction.response.send_message("❌ Yalnızca **Bot Yönetim +** rolüne sahip olanlar onaylayabilir!", ephemeral=True)
         for child in self.children: child.disabled = True
         emb = interaction.message.embeds[0]; emb.color = discord.Color.dark_red(); emb.add_field(name="Durum", value=f"Onaylandı ve Yasaklandı! - {interaction.user.mention}", inline=False)
         await interaction.message.edit(view=self, embed=emb)
@@ -88,15 +89,30 @@ class GlobalGuardActionView(discord.ui.View):
             except: pass
         await interaction.response.send_message(f"Başarılı! {count} sunucudan yasaklandı.", ephemeral=True)
 
+class KomutSecimSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="tamyasakla", description="Global ban talebi komutu", emoji="🛡️"),
+            discord.SelectOption(label="sustur", description="Kullanıcı susturma komutu", emoji="🔇"),
+            discord.SelectOption(label="karantinakaldir", description="Karantina kaldırma komutu", emoji="🔓")
+        ]
+        super().__init__(placeholder="Yönetmek istediğiniz komutu seçin...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(f"📌 `{self.values[0]}` komutu için yetki ayar paneli aktif.", ephemeral=True)
+
+class KomutYetkiPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(KomutSecimSelect())
+
 @bot.event
 async def on_ready():
     print(f"Bot aktif: {bot.user.name}")
     await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.watching, name="| BTF | Turkish Armed Forces"))
 
-# --- ÜYE ROL DEĞİŞİKLİĞİ (3'TEN FAZLA ARD ARDA ROL SİLME TESPİTİ) ---
 @bot.event
 async def on_member_update(before, after):
-    # Susturma kaldırma koruması
     if before.timed_out_until and not after.timed_out_until:
         if KARANTINA_LOG_CHANNEL_ID:
             ch = bot.get_channel(KARANTINA_LOG_CHANNEL_ID)
@@ -104,7 +120,6 @@ async def on_member_update(before, after):
         try: await after.timeout(before.timed_out_until, reason="Manuel susturma kaldırma engellendi.")
         except: pass
 
-    # Rol silme takibi (Bir üyeden 3'ten fazla rol ard arda alındıysa işlemi yapan yetkiliyi bulmaya çalış ve karantinaya at)
     if len(before.roles) > len(after.roles):
         now = datetime.datetime.utcnow().timestamp()
         guild = after.guild
@@ -112,12 +127,9 @@ async def on_member_update(before, after):
             async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.member_role_update):
                 actor = entry.user
                 if actor.bot: return
-                
                 uid = actor.id
                 ROL_SILME_KONTROL.setdefault(uid, []).append(now)
                 ROL_SILME_KONTROL[uid] = [t for t in ROL_SILME_KONTROL[uid] if now - t < 10]
-                
-                # 10 saniye içinde 3'ten fazla rol silindiyse
                 if len(ROL_SILME_KONTROL[uid]) > 3 and KARANTINA_ROL_ID:
                     member_actor = guild.get_member(uid)
                     kar_rol = guild.get_role(KARANTINA_ROL_ID)
@@ -125,7 +137,7 @@ async def on_member_update(before, after):
                         await member_actor.add_roles(kar_rol, reason="Ard arda 3'ten fazla rol silme limiti aşıldı.")
                         if KARANTINA_LOG_CHANNEL_ID:
                             ch = bot.get_channel(KARANTINA_LOG_CHANNEL_ID)
-                            if ch: await ch.send(f"🚨 Güvenlik Uyarısı: {member_actor.mention} ard arda çok fazla rol sildiği için karantinaya alındı!")
+                            if ch: await ch.send(f"🚨 Güvenlik Uyarısı: {member_actor.mention} çok fazla rol sildiği için karantinaya alındı!")
         except: pass
 
 @bot.event
@@ -148,9 +160,22 @@ async def on_message(message):
         return
     await bot.process_commands(message)
 
+@bot.tree.command(name="komutyetki", description="⭐ Komutların kimler tarafından kullanılabileceğini ayarlama paneli.")
+async def komutyetki(interaction: discord.Interaction):
+    if not bot_yonetim_kontrol(interaction):
+        return await interaction.response.send_message("❌ Bu paneli yalnızca **Bot Yönetim +** rolüne sahip olanlar açabilir!", ephemeral=True)
+    
+    emb = discord.Embed(
+        title="⚙️ | BTF | Komut Erişim ve Yetki Paneli",
+        description="Aşağıdaki menüden hangi komutun yetkilerini yapılandırmak istediğinizi seçin.\n*(Yalnızca Bot Yönetim + yetkilileri erişebilir)*",
+        color=discord.Color.blue()
+    )
+    await interaction.response.send_message(embed=emb, view=KomutYetkiPanelView(), ephemeral=True)
+
 @bot.tree.command(name="merkezayarla", description="Merkez log.")
 @app_commands.default_permissions(administrator=True)
 async def merkezayarla(interaction: discord.Interaction, kanal: discord.TextChannel):
+    if not bot_yonetim_kontrol(interaction): return await interaction.response.send_message("❌ Yalnızca **Bot Yönetim +** kullanabilir!", ephemeral=True)
     global MAIN_HEADQUARTER_GUILD_ID, CENTRAL_LOG_CHANNEL_ID
     MAIN_HEADQUARTER_GUILD_ID, CENTRAL_LOG_CHANNEL_ID = interaction.guild.id, kanal.id
     await interaction.response.send_message(f"✅ Merkez: {kanal.mention}", ephemeral=True)
@@ -158,6 +183,7 @@ async def merkezayarla(interaction: discord.Interaction, kanal: discord.TextChan
 @bot.tree.command(name="logayarla", description="Mesaj log.")
 @app_commands.default_permissions(administrator=True)
 async def logayarla(interaction: discord.Interaction, kanal: discord.TextChannel):
+    if not bot_yonetim_kontrol(interaction): return await interaction.response.send_message("❌ Yalnızca **Bot Yönetim +** kullanabilir!", ephemeral=True)
     global MESSAGE_LOG_CHANNEL_ID
     MESSAGE_LOG_CHANNEL_ID = kanal.id
     await interaction.response.send_message(f"✅ Mesaj Log: {kanal.mention}", ephemeral=True)
@@ -165,6 +191,7 @@ async def logayarla(interaction: discord.Interaction, kanal: discord.TextChannel
 @bot.tree.command(name="karantinaayarla", description="Karantina log ve rolü ayarlar.")
 @app_commands.default_permissions(administrator=True)
 async def karantinaayarla(interaction: discord.Interaction, kanal: discord.TextChannel, rol: discord.Role):
+    if not bot_yonetim_kontrol(interaction): return await interaction.response.send_message("❌ Yalnızca **Bot Yönetim +** kullanabilir!", ephemeral=True)
     global KARANTINA_LOG_CHANNEL_ID, KARANTINA_ROL_ID
     KARANTINA_LOG_CHANNEL_ID, KARANTINA_ROL_ID = kanal.id, rol.id
     await interaction.response.send_message(f"✅ Karantina Kanal: {kanal.mention} | Rol: {rol.mention}", ephemeral=True)
@@ -193,7 +220,7 @@ async def susturmakaldir(interaction: discord.Interaction, uye: discord.Member):
 
 @bot.tree.command(name="tamyasakla", description="Zorunlu kanıt ve görsel ile ban.")
 async def tamyasakla(interaction: discord.Interaction, uye_id: str, sebep: str, kanit_metni: str, kanit_gorsel: str):
-    if not bot_yonetim_kontrol(interaction): return await interaction.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
+    if not bot_yonetim_kontrol(interaction): return await interaction.response.send_message("❌ Bu komutu yalnızca **Bot Yönetim +** kullanabilir!", ephemeral=True)
     await interaction.response.defer(ephemeral=True)
     try: uid = int(uye_id)
     except: return await interaction.followup.send("Geçersiz ID!", ephemeral=True)
@@ -208,6 +235,7 @@ async def tamyasakla(interaction: discord.Interaction, uye_id: str, sebep: str, 
 @bot.tree.command(name="yasakkaldir", description="Yasağı kaldırır.")
 @app_commands.default_permissions(ban_members=True)
 async def yasakkaldir(interaction: discord.Interaction, uye_id: str):
+    if not bot_yonetim_kontrol(interaction): return await interaction.response.send_message("❌ Yalnızca **Bot Yönetim +** kullanabilir!", ephemeral=True)
     await interaction.response.defer(ephemeral=True)
     try: user = await bot.fetch_user(int(uye_id))
     except: return await interaction.followup.send("Kullanıcı bulunamadı.", ephemeral=True)
@@ -220,7 +248,9 @@ async def yasakkaldir(interaction: discord.Interaction, uye_id: str):
 @bot.tree.command(name="ticketkur", description="Ticket paneli kurar.")
 @app_commands.default_permissions(administrator=True)
 async def ticketkur(interaction: discord.Interaction):
+    if not bot_yonetim_kontrol(interaction): return await interaction.response.send_message("❌ Yalnızca **Bot Yönetim +** kullanabilir!", ephemeral=True)
     await interaction.channel.send(embed=discord.Embed(title="🛡️ | BTF | Destek Merkezi", description="Destek için tıklayın.", color=discord.Color.dark_blue()), view=TicketCreateView())
     await interaction.response.send_message("✅ Panel kuruldu!", ephemeral=True)
 
 bot.run(os.getenv("TOKEN"))
+                
