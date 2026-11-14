@@ -293,4 +293,4 @@ async def slash_ticketkur(interaction: discord.Interaction):
 
 
 # Bot tokenini buraya yapıştır
-bot.run("MTU3MTE1NTE0NDY4MTIwMTc4NQ.G3F1hx.hPq8P8IjxKFgwQUaTBsKt8Yukjv4t_yDtw2ucw")
+bot.run("TOKEN")
