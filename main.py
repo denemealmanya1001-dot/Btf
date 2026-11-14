@@ -1,3 +1,4 @@
+import os
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -62,7 +63,6 @@ class TicketCreateView(discord.ui.View):
         if not category:
             category = await guild.create_category("DESTEK TALEPLERI")
 
-        # Kullanıcıya özel kanal oluştur
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -120,13 +120,11 @@ class GlobalGuardActionView(discord.ui.View):
         embed.add_field(name="Durum", value=f"🚨 **Tüm Sunuculardan Tam Yasaklandı!** - Yetkili: {interaction.user.mention}", inline=False)
         await interaction.message.edit(view=self, embed=embed)
 
-        # Botun olduğu TÜM sunuculardan kullanıcıyı banla ve DM at
         success_count = 0
         for guild in bot.guilds:
             try:
                 member = await guild.fetch_member(self.target_user_id)
                 if member:
-                    # DM Gönder
                     try:
                         dm_embed = discord.Embed(
                             title="🛑 BTF Kara Kuvvetleri - Global Yasaklama Kararı",
@@ -146,7 +144,6 @@ class GlobalGuardActionView(discord.ui.View):
 
 
 async def send_central_log(title, description, culprit_id: int, color=discord.Color.red()):
-    """Tüm sunuculardaki olayları belirlenen ana karargah kanalına düşürür."""
     if MAIN_HEADQUARTER_GUILD_ID and CENTRAL_LOG_CHANNEL_ID:
         hq_guild = bot.get_guild(MAIN_HEADQUARTER_GUILD_ID)
         if hq_guild:
@@ -197,7 +194,6 @@ async def on_message(message):
 # 4. SLASH (/) KOMUTLARI
 # ==========================================
 
-# 1. Merkez Karargah Log Kanalını Ayarla
 @bot.tree.command(name="merkezayarla", description="Global logların gideceği ana karargah kanalını belirler.")
 @app_commands.default_permissions(administrator=True)
 async def slash_merkezayarla(interaction: discord.Interaction, kanal: discord.TextChannel):
@@ -206,7 +202,6 @@ async def slash_merkezayarla(interaction: discord.Interaction, kanal: discord.Te
     CENTRAL_LOG_CHANNEL_ID = kanal.id
     await interaction.response.send_message(f"✅ Merkez Karargah ve Log Kanalı başarıyla {kanal.mention} olarak ayarlandı!", ephemeral=True)
 
-# 2. Global Tam Yasakla (Tüm Sunuculardan Ban + DM + Kanıt)
 @bot.tree.command(name="tamyasakla", description="Bir kullanıcıyı botun bağlı olduğu TÜM sunuculardan kanıt/sebebiyle banlar.")
 @app_commands.default_permissions(ban_members=True)
 async def slash_tamyasakla(interaction: discord.Interaction, uye_id: str, sebep: str):
@@ -226,6 +221,71 @@ async def slash_tamyasakla(interaction: discord.Interaction, uye_id: str, sebep:
                 try:
                     dm_embed = discord.Embed(
                         title="🛑 BTF Kara Kuvvetleri - Global Tam Yasaklama",
+                        description=f"**Yetkili:** {interaction.user}\n**Sebep / Kanıt:** {sebep}",
+                        color=discord.Color.dark_red()
+                    )
+                    await member.send(embed=dm_embed)
+                except:
+                    pass
+                
+                await guild.ban(member, reason=f"Global Tam Yasakla Komutu | Sebep: {sebep} | Yetkili: {interaction.user}")
+                success_count += 1
+        except:
+            pass
+
+    await interaction.followup.send(f"🚨 İşlem tamam! Belirtilen kullanıcı botun bağlı olduğu **{success_count}** farklı sunucudan tamamen yasaklandı.", ephemeral=True)
+
+@bot.tree.command(name="yasakkaldir", description="Banlanan bir kullanıcının global yasağını ID ile kaldırır.")
+@app_commands.default_permissions(ban_members=True)
+async def slash_yasakkaldir(interaction: discord.Interaction, uye_id: str):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        target_id = int(uye_id)
+        user = await bot.fetch_user(target_id)
+    except:
+        await interaction.followup.send("❌ Geçerli bir kullanıcı bulunamadı.", ephemeral=True)
+        return
+
+    unban_count = 0
+    for guild in bot.guilds:
+        try:
+            await guild.unban(user, reason=f"Global Yasak Kaldırma | Yetkili: {interaction.user}")
+            unban_count += 1
+        except:
+            pass
+
+    await interaction.followup.send(f"✅ {user} adlı kullanıcının yasağı **{unban_count}** sunucudan kaldırıldı.", ephemeral=True)
+
+@bot.tree.command(name="dm", description="Bot üzerinden dilediğiniz kullanıcıya özel mesaj (DM) gönderir.")
+@app_commands.default_permissions(administrator=True)
+async def slash_dm(interaction: discord.Interaction, uye: discord.Member, mesaj: str):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        dm_embed = discord.Embed(
+            title="📢 BTF Karargah Resmi Bildirimi",
+            description=mesaj,
+            color=discord.Color.gold()
+        )
+        dm_embed.set_footer(text=f"Gönderen Yetkili: {interaction.user}")
+        await uye.send(embed=dm_embed)
+        await interaction.followup.send(f"✅ Mesaj başarıyla {uye.mention} adlı kullanıcıya özelden iletildi.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"⚠️ Kullanıcıya mesaj atılamadı (DM kutusu kapalı olabilir): {e}", ephemeral=True)
+
+@bot.tree.command(name="ticketkur", description="Kullanıcıların destek talebi açabileceği butonlu paneli kurar.")
+@app_commands.default_permissions(administrator=True)
+async def slash_ticketkur(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🛡️ BTF Kara Kuvvetleri Destek ve İletişim Merkezi",
+        description="Yetkililerle iletişime geçmek, sorun bildirmek veya destek almak için aşağıdaki **Destek Talebi Aç** butonuna tıklayınız.",
+        color=discord.Color.dark_blue()
+    )
+    await interaction.channel.send(embed=embed, view=TicketCreateView())
+    await interaction.response.send_message("✅ Destek paneli bu kanala başarıyla kuruldu!", ephemeral=True)
+
+# Bot tokenini Railway gizli değişkeninden güvenli bir şekilde alır
+bot.run(os.getenv("TOKEN"))
+asaklama",
                         description=f"**Yetkili:** {interaction.user}\n**Sebep / Kanıt:** {sebep}",
                         color=discord.Color.dark_red()
                     )
