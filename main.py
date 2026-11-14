@@ -180,7 +180,7 @@ async def slash_merkezayarla(interaction: discord.Interaction, kanal: discord.Te
     CENTRAL_LOG_CHANNEL_ID = kanal.id
     await interaction.response.send_message(f"Merkez Karargah ve Log Kanali ayarlandi: {kanal.mention}", ephemeral=True)
 
-@bot.tree.command(name="sustur", description="Bir kullaniciyi belirtilen sureyle susturur.")
+@bot.tree.command(name="sustur", description="Bir kullanıcıyı belirtilen süreyle susturur.")
 @app_commands.default_permissions(moderate_members=True)
 async def slash_sustur(interaction: discord.Interaction, uye: discord.Member, sure_dakika: int, sebep: str = "Belirtilmedi"):
     duration = datetime.timedelta(minutes=sure_dakika)
@@ -189,6 +189,15 @@ async def slash_sustur(interaction: discord.Interaction, uye: discord.Member, su
         await interaction.response.send_message(f"✅ {uye.mention} adlı kullanıcı {sure_dakika} dakika süreyle susturuldu. Sebep: {sebep}", ephemeral=True)
     except Exception as e:
         await interaction.response.send_message(f"❌ Susturma islemi basarisiz: {e}", ephemeral=True)
+
+@bot.tree.command(name="susturmakaldir", description="Bir kullanıcının susturmasını (timeout) kaldırır.")
+@app_commands.default_permissions(moderate_members=True)
+async def slash_susturmakaldir(interaction: discord.Interaction, uye: discord.Member):
+    try:
+        await uye.timeout(None, reason=f"Susturma Kaldırıldı - Yetkili: {interaction.user}")
+        await interaction.response.send_message(f"✅ {uye.mention} adlı kullanıcının susturması kaldırıldı.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ İşlem başarısız: {e}", ephemeral=True)
 
 @bot.tree.command(name="tamyasakla", description="Kullaniciyi kanit ve sebebiyle tum sunuculardan banlar, merkeze onay paneli duser.")
 @app_commands.default_permissions(ban_members=True)
@@ -359,10 +368,6 @@ async def slash_ticketkur(interaction: discord.Interaction):
     )
     await interaction.channel.send(embed=embed, view=TicketCreateView())
     await interaction.response.send_message("✅ Destek paneli kuruldu!", ephemeral=True)
-
-bot.run(os.getenv("TOKEN"))
-ketCreateView())
-    await interaction.response.send_message("Destek paneli kuruldu!", ephemeral=True)
 
 bot.run(os.getenv("TOKEN"))
         
