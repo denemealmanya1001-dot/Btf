@@ -17,350 +17,243 @@ class BTFGuardBot(commands.Bot):
 
     async def setup_hook(self):
         await self.tree.sync()
-        print("| BTF | Turkish Armed Forces - Güvenlik ve Moderasyon Sistemi Senkronize Edildi.")
+        print("| BTF | Turkish Armed Forces - Sistem Aktif.")
 
 bot = BTFGuardBot()
 
-# Global değişkenler
 MAIN_HEADQUARTER_GUILD_ID = None  
 CENTRAL_LOG_CHANNEL_ID = None     
+MESSAGE_LOG_CHANNEL_ID = None     
 
 YASAKLI_KELIMELER = ["kufur1", "kufur2", "reklamlinki"]
 
-# --- TICKET KAPATMA ---
 class TicketCloseView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-
     @discord.ui.button(label="Destek Talebini Kapat", style=discord.ButtonStyle.danger, custom_id="close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Destek talebi kapatiliyor, kanal 5 saniye icinde silinecektir...", ephemeral=True)
-        await asyncio_sleep_and_delete(interaction.channel)
+        await interaction.response.send_message("Destek talebi kapatiliyor...", ephemeral=True)
+        import asyncio
+        await asyncio.sleep(5)
+        try:
+            await interaction.channel.delete(reason="Destek kapatildi.")
+        except:
+            pass
 
-async def asyncio_sleep_and_delete(channel):
-    import asyncio
-    await asyncio.sleep(5)
-    try:
-        await channel.delete(reason="Destek talebi kapatildi.")
-    except:
-        pass
-
-# --- TICKET AÇMA ---
 class TicketCreateView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
-
-    @discord.ui.button(label="Destek Talebi Ac (Ticket)", style=discord.ButtonStyle.blurple, custom_id="create_ticket")
+    @discord.ui.button(label="Destek Talebi Ac", style=discord.ButtonStyle.blurple, custom_id="create_ticket")
     async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         guild = interaction.guild
-        category = discord.utils.get(guild.categories, name="DESTEK TALEPLERI")
-        if not category:
-            category = await guild.create_category("DESTEK TALEPLERI")
+        cat = discord.utils.get(guild.categories, name="DESTEK TALEPLERI") or await guild.create_category("DESTEK TALEPLERI")
+        overwrites = {guild.default_role: discord.PermissionOverwrite(read_messages=False), interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True), guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)}
+        ch = await guild.create_text_channel(name=f"ticket-{interaction.user.name}", category=cat, overwrites=overwrites)
+        rol = discord.utils.get(guild.roles, name="yetkili")
+        await ch.send(content=f"{rol.mention if rol else '@yetkili'} Yeni talep açıldı!", embed=discord.Embed(title="| BTF | Destek", description=f"Merhaba {interaction.user.mention}, yetkililer ilgilenecektir.", color=discord.Color.blue()), view=TicketCloseView())
+        await interaction.response.send_message(f"Kanal: {ch.mention}", ephemeral=True)
 
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(read_messages=False),
-            interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-        }
-        
-        ticket_channel = await guild.create_text_channel(
-            name=f"ticket-{interaction.user.name}",
-            category=category,
-            overwrites=overwrites
-        )
-
-        yetkili_rol = discord.utils.get(guild.roles, name="yetkili")
-        etiket_metni = yetkili_rol.mention if yetkili_rol else "@yetkili"
-
-        embed = discord.Embed(
-            title="| BTF | Turkish Armed Forces - Destek Hatti",
-            description=f"Merhaba {interaction.user.mention}, yetkililer kisa sure icinde sizinle ilgilenecektir.",
-            color=discord.Color.blue()
-        )
-        await ticket_channel.send(content=f"{etiket_metni} Yeni bir destek talebi açıldı!", embed=embed, view=TicketCloseView())
-        await interaction.response.send_message(f"Destek kanaliniz olusturuldu: {ticket_channel.mention}", ephemeral=True)
-
-# --- MERKEZİ ONAY / RED / GLOBAL YASAKLAMA ---
 class GlobalGuardActionView(discord.ui.View):
-    def __init__(self, target_user_id: int, action_reason: str, kanit_metin: str, kanit_gorsel: str = None):
+    def __init__(self, uid: int, reason: str, kanit: str, gorsel: str = None):
         super().__init__(timeout=None)
-        self.target_user_id = target_user_id
-        self.action_reason = action_reason
-        self.kanit_metin = kanit_metin
-        self.kanit_gorsel = kanit_gorsel
+        self.uid, self.reason, self.kanit, self.gorsel = uid, reason, kanit, gorsel
 
-    @discord.ui.button(label="Onayla (Reddet / İşlem Yapma)", style=discord.ButtonStyle.green, custom_id="global_approve")
-    async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("Yonetici yetkin olmali!", ephemeral=True)
-            return
+    @discord.ui.button(label="Reddet", style=discord.ButtonStyle.green, custom_id="g_app")
+    async def app(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator and not discord.utils.get(interaction.user.roles, name="Yasak Yetkilisi"):
+            return await interaction.response.send_message("Yetkiniz yok!", ephemeral=True)
+        for child in self.children: child.disabled = True
+        emb = interaction.message.embeds[0]
+        emb.color = discord.Color.green()
+        emb.add_field(name="Durum", value=f"Reddedildi - {interaction.user.mention}", inline=False)
+        await interaction.message.edit(view=self, embed=emb)
+        await interaction.response.send_message("İşlem iptal edildi.", ephemeral=True)
 
-        for child in self.children:
-            child.disabled = True
-        
-        embed = interaction.message.embeds[0]
-        embed.color = discord.Color.green()
-        embed.add_field(name="Durum", value=f"❌ **Reddedildi / İşleme Alınmadı** - Yetkili: {interaction.user.mention}", inline=False)
-        await interaction.message.edit(view=self, embed=embed)
-        await interaction.response.send_message("İşlem onaylanmadı (reddedildi), herhangi bir ban uygulanmadı.", ephemeral=True)
-
-    @discord.ui.button(label="Tüm Bot Sunucularından Tam Yasakla", style=discord.ButtonStyle.red, custom_id="global_ban")
-    async def global_ban_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("Yonetici yetkin olmali!", ephemeral=True)
-            return
-
-        for child in self.children:
-            child.disabled = True
-
-        embed = interaction.message.embeds[0]
-        embed.color = discord.Color.dark_red()
-        embed.add_field(name="Durum", value=f"🚨 **Onaylandı ve Tüm Sunuculardan Yasaklandı!** - Yetkili: {interaction.user.mention}", inline=False)
-        await interaction.message.edit(view=self, embed=embed)
-
-        success_count = 0
-        for guild in bot.guilds:
+    @discord.ui.button(label="Tüm Sunuculardan Yasakla", style=discord.ButtonStyle.red, custom_id="g_ban")
+    async def gban(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator and not discord.utils.get(interaction.user.roles, name="Yasak Yetkilisi"):
+            return await interaction.response.send_message("Yetkiniz yok!", ephemeral=True)
+        for child in self.children: child.disabled = True
+        emb = interaction.message.embeds[0]
+        emb.color = discord.Color.dark_red()
+        emb.add_field(name="Durum", value=f"Onaylandı ve Yasaklandı! - {interaction.user.mention}", inline=False)
+        await interaction.message.edit(view=self, embed=emb)
+        count = 0
+        for g in bot.guilds:
             try:
-                member = await guild.fetch_member(self.target_user_id)
-                if member:
+                m = await g.fetch_member(self.uid)
+                if m:
                     try:
-                        dm_embed = discord.Embed(
-                            title="🛑 | BTF | Turkish Armed Forces - Global Yasaklama Karari",
-                            description=f"**Sunucu:** {guild.name}\n**Sebep:** {self.action_reason}\n**Kanıt:** {self.kanit_metin}\n\n*Botun bağli olduğu tüm sunuculardan kalıcı olarak izole edildiniz.*",
-                            color=discord.Color.red()
-                        )
-                        if self.kanit_gorsel:
-                            dm_embed.set_image(url=self.kanit_gorsel)
-                        await member.send(embed=dm_embed)
-                    except:
-                        pass
-                    
-                    await guild.ban(member, reason=f"| BTF | Global Tam Yasak | Sebep: {self.action_reason} | Kanit: {self.kanit_metin}")
-                    success_count += 1
-            except:
-                pass
+                        dm = discord.Embed(title="🛑 | BTF | Global Yasaklama", description=f"Sebep: {self.reason}\nKanıt: {self.kanit}", color=discord.Color.red())
+                        if self.gorsel: dm.set_image(url=self.gorsel)
+                        await m.send(embed=dm)
+                    except: pass
+                    await g.ban(m, reason=f"Global Ban | {self.reason}")
+                    count += 1
+            except: pass
+        await interaction.response.send_message(f"Başarılı! {count} sunucudan yasaklandı.", ephemeral=True)
 
-        await interaction.response.send_message(f"✅ Onay verildi! Kullanıcı {success_count} sunucudan tamamen yasaklandı ve bilgilendirildi.", ephemeral=True)
+class GenelkurmayGuardActionView(discord.ui.View):
+    def __init__(self, uid: int, reason: str, kanit: str, gorsel: str = None):
+        super().__init__(timeout=None)
+        self.uid, self.reason, self.kanit, self.gorsel = uid, reason, kanit, gorsel
+
+    @discord.ui.button(label="Reddet", style=discord.ButtonStyle.green, custom_id="gk_app")
+    async def app(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator and not discord.utils.get(interaction.user.roles, name="Genelkurmay Başkanı"):
+            return await interaction.response.send_message("Yetkiniz yok!", ephemeral=True)
+        for child in self.children: child.disabled = True
+        emb = interaction.message.embeds[0]
+        emb.color = discord.Color.green()
+        emb.add_field(name="Durum", value=f"Genelkurmay Reddedildi - {interaction.user.mention}", inline=False)
+        await interaction.message.edit(view=self, embed=emb)
+        await interaction.response.send_message("Genelkurmay emri reddetti.", ephemeral=True)
+
+    @discord.ui.button(label="Genelkurmay Onayı İle Yasakla", style=discord.ButtonStyle.red, custom_id="gk_ban")
+    async def gban(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator and not discord.utils.get(interaction.user.roles, name="Genelkurmay Başkanı"):
+            return await interaction.response.send_message("Yetkiniz yok!", ephemeral=True)
+        for child in self.children: child.disabled = True
+        emb = interaction.message.embeds[0]
+        emb.color = discord.Color.gold()
+        emb.add_field(name="Durum", value=f"⭐ Genelkurmay Onayladı ve Yasaklandı! - {interaction.user.mention}", inline=False)
+        await interaction.message.edit(view=self, embed=emb)
+        count = 0
+        for g in bot.guilds:
+            try:
+                m = await g.fetch_member(self.uid)
+                if m:
+                    try:
+                        dm = discord.Embed(title="⭐ | BTF | Genelkurmay Kararı", description=f"Sebep: {self.reason}\nKanıt: {self.kanit}", color=discord.Color.gold())
+                        if self.gorsel: dm.set_image(url=self.gorsel)
+                        await m.send(embed=dm)
+                    except: pass
+                    await g.ban(m, reason=f"Genelkurmay Ban | {self.reason}")
+                    count += 1
+            except: pass
+        await interaction.response.send_message(f"Genelkurmay emri uygulandı! {count} sunucudan yasaklandı.", ephemeral=True)
 
 @bot.event
 async def on_ready():
     print(f"Bot aktif: {bot.user.name}")
-    await bot.change_presence(
-        status=discord.Status.online,
-        activity=discord.Activity(type=discord.ActivityType.watching, name="| BTF | Turkish Armed Forces")
-    )
+    await bot.change_presence(status=discord.Status.online, activity=discord.Activity(type=discord.ActivityType.watching, name="| BTF | Turkish Armed Forces"))
+
+@bot.event
+async def on_message_delete(message):
+    if message.author.bot or not MESSAGE_LOG_CHANNEL_ID: return
+    ch = bot.get_channel(MESSAGE_LOG_CHANNEL_ID)
+    if ch:
+        emb = discord.Embed(title="🗑️ | BTF | Silinen Mesaj", color=discord.Color.orange(), timestamp=datetime.datetime.utcnow())
+        emb.add_field(name="Kullanıcı", value=f"{message.author.mention} (`{message.author.id}`)", inline=False)
+        emb.add_field(name="Kanal", value=f"{message.channel.mention}", inline=False)
+        if message.content: emb.add_field(name="İçerik", value=message.content[:1024], inline=False)
+        if message.attachments:
+            emb.set_image(url=message.attachments[0].url)
+            emb.add_field(name="Görsel", value=message.attachments[0].url, inline=False)
+        await ch.send(embed=emb)
 
 @bot.event
 async def on_message(message):
-    if message.author.bot:
+    if message.author.bot: return
+    if any(k in message.content.lower() for k in YASAKLI_KELIMELER):
+        try:
+            await message.delete()
+            await message.author.send("| BTF | Yasaklı kelime engellendi!")
+            await message.channel.send(f"{message.author.mention}, yasaklı kelime!", delete_after=4)
+        except: pass
         return
-
-    mesaj_icerigi = message.content.lower()
-    for kelime in YASAKLI_KELIMELER:
-        if kelime in mesaj_icerigi:
-            try:
-                await message.delete()
-                try:
-                    await message.author.send("| BTF | Sunucusunda yasaklı kelime kullandığınız için mesajınız engellendi!")
-                except:
-                    pass
-                await message.channel.send(f"{message.author.mention}, bu kelime yasak!", delete_after=4)
-            except Exception as e:
-                print(f"Filtre hata: {e}")
-            return
-
     await bot.process_commands(message)
 
-
-# ==========================================
-# MODERASYON VE YÖNETİM KOMUTLARI
-# ==========================================
-
-@bot.tree.command(name="merkezayarla", description="Global log ve onay kanalini belirler.")
+@bot.tree.command(name="merkezayarla", description="Log kanalını ayarlar.")
 @app_commands.default_permissions(administrator=True)
-async def slash_merkezayarla(interaction: discord.Interaction, kanal: discord.TextChannel):
+async def merkezayarla(interaction: discord.Interaction, kanal: discord.TextChannel):
     global MAIN_HEADQUARTER_GUILD_ID, CENTRAL_LOG_CHANNEL_ID
-    MAIN_HEADQUARTER_GUILD_ID = interaction.guild.id
-    CENTRAL_LOG_CHANNEL_ID = kanal.id
-    await interaction.response.send_message(f"✅ | BTF | Merkez Karargah ve Log Kanali basariyla {kanal.mention} olarak ayarlandi!", ephemeral=True)
+    MAIN_HEADQUARTER_GUILD_ID, CENTRAL_LOG_CHANNEL_ID = interaction.guild.id, kanal.id
+    await interaction.response.send_message(f"✅ Merkez: {kanal.mention}", ephemeral=True)
 
-@bot.tree.command(name="sustur", description="Bir kullanıcıyı belirtilen süreyle susturur.")
+@bot.tree.command(name="logayarla", description="Silinen mesaj log kanalını ayarlar.")
+@app_commands.default_permissions(administrator=True)
+async def logayarla(interaction: discord.Interaction, kanal: discord.TextChannel):
+    global MESSAGE_LOG_CHANNEL_ID
+    MESSAGE_LOG_CHANNEL_ID = kanal.id
+    await interaction.response.send_message(f"✅ Mesaj Log: {kanal.mention}", ephemeral=True)
+
+@bot.tree.command(name="sustur", description="Kullanıcıyı susturur.")
 @app_commands.default_permissions(moderate_members=True)
-async def slash_sustur(interaction: discord.Interaction, uye: discord.Member, sure_dakika: int, sebep: str = "Belirtilmedi"):
-    duration = datetime.timedelta(minutes=sure_dakika)
-    try:
-        await uye.timeout(duration, reason=sebep)
-        await interaction.response.send_message(f"✅ {uye.mention} adlı kullanıcı {sure_dakika} dakika süreyle susturuldu. Sebep: {sebep}", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Susturma islemi basarisiz: {e}", ephemeral=True)
+async def sustur(interaction: discord.Interaction, uye: discord.Member, sure_dakika: int, sebep: str = "Belirtilmedi"):
+    await uye.timeout(datetime.timedelta(minutes=sure_dakika), reason=sebep)
+    await interaction.response.send_message(f"✅ {uye.mention} susturuldu.", ephemeral=True)
 
-@bot.tree.command(name="susturmakaldir", description="Bir kullanıcının susturmasını (timeout) kaldırır.")
+@bot.tree.command(name="susturmakaldir", description="Susturmayı kaldırır.")
 @app_commands.default_permissions(moderate_members=True)
-async def slash_susturmakaldir(interaction: discord.Interaction, uye: discord.Member):
-    try:
-        await uye.timeout(None, reason=f"Susturma Kaldırıldı - Yetkili: {interaction.user}")
-        await interaction.response.send_message(f"✅ {uye.mention} adlı kullanıcının susturması kaldırıldı.", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ İşlem başarısız: {e}", ephemeral=True)
+async def susturmakaldir(interaction: discord.Interaction, uye: discord.Member):
+    await uye.timeout(None, reason="Susturma kaldırıldı")
+    await interaction.response.send_message(f"✅ {uye.mention} susturması kaldırıldı.", ephemeral=True)
 
-@bot.tree.command(name="tamyasakla", description="Kullaniciyi kanit ve sebebiyle merkeze onay paneline gonderir (Onaylanmadan ban atilmaz).")
-@app_commands.default_permissions(ban_members=True)
-async def slash_tamyasakla(interaction: discord.Interaction, uye_id: str, sebep: str, kanit_metni: str, kanit_gorsel_linki: str = None):
+@bot.tree.command(name="tamyasakla", description="Yasak yetkilisi ban talebi.")
+async def tamyasakla(interaction: discord.Interaction, uye_id: str, sebep: str, kanit_metni: str, kanit_gorsel_linki: str = None):
+    if not interaction.user.guild_permissions.administrator and not discord.utils.get(interaction.user.roles, name="Yasak Yetkilisi"):
+        return await interaction.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await interaction.response.defer(ephemeral=True)
-    
-    try:
-        target_id = int(uye_id)
-    except ValueError:
-        await interaction.followup.send("❌ Gecersiz ID!", ephemeral=True)
-        return
-
+    try: uid = int(uye_id)
+    except: return await interaction.followup.send("Geçersiz ID!", ephemeral=True)
     if not MAIN_HEADQUARTER_GUILD_ID or not CENTRAL_LOG_CHANNEL_ID:
-        await interaction.followup.send("❌ Önce `/merkezayarla` komutu ile merkez log kanalını ayarlamalısınız!", ephemeral=True)
-        return
+        return await interaction.followup.send("Önce /merkezayarla yapın!", ephemeral=True)
+    ch = bot.get_guild(MAIN_HEADQUARTER_GUILD_ID).get_channel(CENTRAL_LOG_CHANNEL_ID)
+    emb = discord.Embed(title="🛡️ | BTF | Yasak Onay Talebi", description=f"ID: `{uid}`\nSebep: {sebep}\nKanıt: {kanit_metni}", color=discord.Color.orange())
+    if kanit_gorsel_linki: emb.set_image(url=kanit_gorsel_linki)
+    await ch.send(embed=emb, view=GlobalGuardActionView(uid, sebep, kanit_metni, kanit_gorsel_linki))
+    await interaction.followup.send("✅ Talep merkeze gönderildi.", ephemeral=True)
 
-    hq_guild = bot.get_guild(MAIN_HEADQUARTER_GUILD_ID)
-    if hq_guild:
-        log_channel = hq_guild.get_channel(CENTRAL_LOG_CHANNEL_ID)
-        if log_channel:
-            embed = discord.Embed(
-                title="🛡️ | BTF | Turkish Armed Forces - Global Yasaklama Onay Talebi",
-                description=f"**Hedef Kullanıcı ID:** `{target_id}`\n**Sebep:** {sebep}\n**Kanıt:** {kanit_metni}\n**İşlemi Başlatan:** {interaction.user.mention}",
-                color=discord.Color.orange(),
-                timestamp=datetime.datetime.utcnow()
-            )
-            if kanit_gorsel_linki:
-                embed.set_image(url=kanit_gorsel_linki)
+@bot.tree.command(name="globalyasakla", description="⭐ Genelkurmay başkanı global ban emri.")
+async def globalyasakla(interaction: discord.Interaction, uye_id: str, sebep: str, kanit_metni: str, kanit_gorsel_linki: str = None):
+    if not interaction.user.guild_permissions.administrator and not discord.utils.get(interaction.user.roles, name="Genelkurmay Başkanı"):
+        return await interaction.response.send_message("❌ Yalnızca Genelkurmay Başkanı kullanabilir!", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+    try: uid = int(uye_id)
+    except: return await interaction.followup.send("Geçersiz ID!", ephemeral=True)
+    if not MAIN_HEADQUARTER_GUILD_ID or not CENTRAL_LOG_CHANNEL_ID:
+        return await interaction.followup.send("Önce /merkezayarla yapın!", ephemeral=True)
+    ch = bot.get_guild(MAIN_HEADQUARTER_GUILD_ID).get_channel(CENTRAL_LOG_CHANNEL_ID)
+    emb = discord.Embed(title="⭐ | BTF | Genelkurmay Yasak Emri", description=f"ID: `{uid}`\nSebep: {sebep}\nKanıt: {kanit_metni}", color=discord.Color.gold())
+    if kanit_gorsel_linki: emb.set_image(url=kanit_gorsel_linki)
+    await ch.send(embed=emb, view=GenelkurmayGuardActionView(uid, sebep, kanit_metni, kanit_gorsel_linki))
+    await interaction.followup.send("⭐ Genelkurmay emri merkeze iletildi.", ephemeral=True)
 
-            view = GlobalGuardActionView(target_user_id=target_id, action_reason=sebep, kanit_metin=kanit_metni, kanit_gorsel=kanit_gorsel_linki)
-            await log_channel.send(embed=embed, view=view)
-            await interaction.followup.send("✅ Yasaklama talebi merkez log kanalına gönderildi. **Yönetici onayı vermeden hiçbir sunucuda ban uygulanmayacaktır.**", ephemeral=True)
-        else:
-            await interaction.followup.send("❌ Merkez log kanalı bulunamadı!", ephemeral=True)
-    else:
-        await interaction.followup.send("❌ Merkez sunucuya ulaşılamadı!", ephemeral=True)
-
-@bot.tree.command(name="yasakkaldir", description="Global yasagi tum sunuculardan kaldirir.")
+@bot.tree.command(name="yasakkaldir", description="Yasağı kaldırır.")
 @app_commands.default_permissions(ban_members=True)
-async def slash_yasakkaldir(interaction: discord.Interaction, uye_id: str):
+async def yasakkaldir(interaction: discord.Interaction, uye_id: str):
     await interaction.response.defer(ephemeral=True)
-    try:
-        target_id = int(uye_id)
-        user = await bot.fetch_user(target_id)
-    except:
-        await interaction.followup.send("❌ Gecerli bir kullanici bulunamadi.", ephemeral=True)
-        return
-
-    unban_count = 0
-    for guild in bot.guilds:
-        try:
-            await guild.unban(user, reason=f"| BTF | Global Yasak Kaldirma | Yetkili: {interaction.user}")
-            unban_count += 1
-        except:
-            pass
-
-    await interaction.followup.send(f"✅ Kullanicinin yasagi {unban_count} sunucudan kaldirildi.", ephemeral=True)
-
-@bot.tree.command(name="yasaksifirla", description="Sunucudaki tum yasaklari sifirlar (kaldirir).")
-@app_commands.default_permissions(administrator=True)
-async def slash_yasaksifirla(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+    try: user = await bot.fetch_user(int(uye_id))
+    except: return await interaction.followup.send("Kullanıcı bulunamadı.", ephemeral=True)
     count = 0
-    async for ban_entry in interaction.guild.bans():
-        try:
-            await interaction.guild.unban(ban_entry.user, reason=f"| BTF | Toplu Yasak Sifirlama | Yetkili: {interaction.user}")
-            count += 1
-        except:
-            pass
-    await interaction.followup.send(f"✅ Sunucudaki toplam {count} ban (yasak) kaldırıldı.", ephemeral=True)
+    for g in bot.guilds:
+        try: await g.unban(user, reason="Global Unban"); count += 1
+        except: pass
+    await interaction.followup.send(f"✅ Yasak {count} sunucudan kaldırıldı.", ephemeral=True)
 
-@bot.tree.command(name="yasaksorgu", description="Bir kullanicinin bu sunucudaki ban/yasak durumunu sorgular.")
-@app_commands.default_permissions(ban_members=True)
-async def slash_yasaksorgu(interaction: discord.Interaction, uye_id: str):
-    await interaction.response.defer(ephemeral=True)
-    try:
-        target_id = int(uye_id)
-        user = await bot.fetch_user(target_id)
-        ban_entry = await interaction.guild.fetch_ban(user)
-        embed = discord.Embed(title="🔍 | BTF | Yasak Sorgulama Sonucu", color=discord.Color.red())
-        embed.add_field(name="Kullanıcı", value=f"{user} (`{user.id}`)", inline=False)
-        embed.add_field(name="Yasak Sebebi", value=ban_entry.reason or "Sebep belirtilmemiş", inline=False)
-        await interaction.followup.send(embed=embed, ephemeral=True)
-    except discord.NotFound:
-        await interaction.followup.send("✅ Bu kullanıcı bu sunucuda banlı değil.", ephemeral=True)
-    except Exception as e:
-        await interaction.followup.send(f"❌ Sorgulama sırasında hata oluştu: {e}", ephemeral=True)
-
-
-# ==========================================
-# ROL YÖNETİM KOMUTLARI
-# ==========================================
-
-@bot.tree.command(name="rolver", description="Bir kullanıcıya rol verir.")
+@bot.tree.command(name="rolver", description="Rol verir.")
 @app_commands.default_permissions(manage_roles=True)
-async def slash_rolver(interaction: discord.Interaction, uye: discord.Member, rol: discord.Role):
-    try:
-        await uye.add_roles(rol, reason=f"| BTF | Yetkili: {interaction.user}")
-        await interaction.response.send_message(f"✅ {uye.mention} adlı kullanıcıya {rol.mention} rolü verildi.", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Rol verme başarısız (Botun yetkisi yetersiz veya rol botun rolünden üstte olabilir): {e}", ephemeral=True)
+async def rolver(interaction: discord.Interaction, uye: discord.Member, rol: discord.Role):
+    await uye.add_roles(rol, reason="Bot komutu")
+    await interaction.response.send_message(f"✅ {uye.mention} adlı kişiye {rol.mention} verildi.", ephemeral=True)
 
-@bot.tree.command(name="rolal", description="Bir kullanıcıdan rol alır.")
+@bot.tree.command(name="rolal", description="Rol alır.")
 @app_commands.default_permissions(manage_roles=True)
-async def slash_rolal(interaction: discord.Interaction, uye: discord.Member, rol: discord.Role):
-    try:
-        await uye.remove_roles(rol, reason=f"| BTF | Yetkili: {interaction.user}")
-        await interaction.response.send_message(f"✅ {uye.mention} adlı kullanıcıdan {rol.mention} rolü alındı.", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Rol alma başarısız: {e}", ephemeral=True)
+async def rolal(interaction: discord.Interaction, uye: discord.Member, rol: discord.Role):
+    await uye.remove_roles(rol, reason="Bot komutu")
+    await interaction.response.send_message(f"✅ {uye.mention} adlı kişiden {rol.mention} alındı.", ephemeral=True)
 
-@bot.tree.command(name="rutbedegistir", description="Bir kullanıcının unvan/rütbe rolünü değiştirir.")
-@app_commands.default_permissions(manage_roles=True)
-async def slash_rutbedegistir(interaction: discord.Interaction, uye: discord.Member, yeni_rutbe_rolu: discord.Role):
-    try:
-        await uye.add_roles(yeni_rutbe_rolu, reason=f"| BTF | Rütbe Değişikliği - {interaction.user}")
-        await interaction.response.send_message(f"✅ {uye.mention} adlı kullanıcının rolü {yeni_rutbe_rolu.mention} olarak güncellendi.", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Rol değiştirilemedi: {e}", ephemeral=True)
-
-@bot.tree.command(name="rutbesorgu", description="Bir kullanıcının üzerindeki rolleri sorgular.")
-@app_commands.default_permissions(manage_roles=True)
-async def slash_rutbesorgu(interaction: discord.Interaction, uye: discord.Member):
-    roller = [r.mention for r in uye.roles if r != interaction.guild.default_role]
-    roller_str = ", ".join(roller) if roller else "Hiç rolü yok"
-    embed = discord.Embed(title=f"🎖️ | BTF | {uye.display_name} - Rol Sorgusu", description=roller_str, color=discord.Color.gold())
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-# ==========================================
-# GENEL DİĞER KOMUTLAR
-# ==========================================
-
-@bot.tree.command(name="dm", description="Bot üzerinden kullanıcıya özel mesaj gönderir.")
+@bot.tree.command(name="dm", description="DM gönderir.")
 @app_commands.default_permissions(administrator=True)
-async def slash_dm(interaction: discord.Interaction, uye: discord.Member, mesaj: str):
-    await interaction.response.defer(ephemeral=True)
-    try:
-        dm_embed = discord.Embed(
-            title="📢 | BTF | Turkish Armed Forces - Resmi Bildirimi",
-            description=mesaj,
-            color=discord.Color.gold()
-        )
-        dm_embed.set_footer(text=f"Gönderen Yetkili: {interaction.user}")
-        await uye.send(embed=dm_embed)
-        await interaction.followup.send(f"✅ Mesaj {uye.mention} adlı kullanıcıya iletildi.", ephemeral=True)
-    except Exception as e:
-        await interaction.followup.send(f"❌ Mesaj atılamadı: {e}", ephemeral=True)
+async def dm(interaction: discord.Interaction, uye: discord.Member, mesaj: str):
+    await uye.send(embed=discord.Embed(title="📢 | BTF | Bildiri", description=mesaj, color=discord.Color.gold()))
+    await interaction.response.send_message("✅ Mesaj iletildi.", ephemeral=True)
 
-@bot.tree.command(name="ticketkur", description="Destek paneli kurar.")
+@bot.tree.command(name="ticketkur", description="Ticket paneli kurar.")
 @app_commands.default_permissions(administrator=True)
-async def slash_ticketkur(interaction: discord.Interaction):
-    embed = discord.Embed(
-        title="🛡️ | BTF | Turkish Armed Forces - Destek ve İletişim Merkezi",
-        description="Yetkililerle iletişime geçmek için aşağıdaki **Destek Talebi Aç** butonuna tıklayınız.",
-        color=discord.Color.dark_blue()
-    )
-    await interaction.channel.send(embed=embed, view=TicketCreateView())
-    await interaction.response.send_message("✅ Destek paneli kuruldu!", ephemeral=True)
+async def ticketkur(interaction: discord.Interaction):
+    await interaction.channel.send(embed=discord.Embed(title="🛡️ | BTF | Destek Merkezi", description="Destek açmak için butona tıklayın.", color=discord.Color.dark_blue()), view=TicketCreateView())
+    await interaction.response.send_message("✅ Panel kuruldu!", ephemeral=True)
 
 bot.run(os.getenv("TOKEN"))
-    
