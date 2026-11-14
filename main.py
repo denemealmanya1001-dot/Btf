@@ -69,7 +69,7 @@ class TicketCreateView(discord.ui.View):
 
         embed = discord.Embed(
             title="BTF Karargah Destek Hatti",
-            description=f"Merhaba {interaction.user.mention}, yetkililer kisa sure icinde sizinle ilgilenecektir.\nTalebi kapatmak icin asagidaki butonu kullanabilirsiniz.",
+            description=f"Merhaba {interaction.user.mention}, yetkililer kisa sure icinde sizinle ilgilenecektir.",
             color=discord.Color.blue()
         )
         await ticket_channel.send(embed=embed, view=TicketCloseView())
@@ -107,7 +107,7 @@ class GlobalGuardActionView(discord.ui.View):
 
         embed = interaction.message.embeds[0]
         embed.color = discord.Color.dark_red()
-        embed.add_field(name="Durum", value=f"Tum Sunuculardan Tam Yasaklandi! - Yetkili: {interaction.user.mention}", inline=False)
+        embed.add_field(name="Durum", value=f"Tum Sunuculardan Tam Yasaklandi!", inline=False)
         await interaction.message.edit(view=self, embed=embed)
 
         success_count = 0
@@ -117,20 +117,20 @@ class GlobalGuardActionView(discord.ui.View):
                 if member:
                     try:
                         dm_embed = discord.Embed(
-                            title="BTF Kara Kuvvetleri - Global Yasaklama Karari",
-                            description=f"Sunucu: {guild.name}\nSebep / Kanit: {self.action_reason}\n\nBotun bagli oldugu tum sunuculardan kalici olarak izole edildiniz.",
+                            title="BTF Kara Kuvvetleri - Global Yasaklama",
+                            description=f"Sebep: {self.action_reason}",
                             color=discord.Color.red()
                         )
                         await member.send(embed=dm_embed)
                     except:
                         pass
                     
-                    await guild.ban(member, reason=f"Global Tam Yasaklama: {self.action_reason}")
+                    await guild.ban(member, reason=self.action_reason)
                     success_count += 1
             except:
                 pass
 
-        await interaction.response.send_message(f"Islem basarili! Kullanici botun bagli oldugu {success_count} farkli sunucudan tamamen yasaklandi.", ephemeral=True)
+        await interaction.response.send_message(f"Islem basarili! {success_count} sunucudan yasaklandi.", ephemeral=True)
 
 @bot.event
 async def on_ready():
@@ -148,7 +148,7 @@ async def on_message(message):
             try:
                 await message.delete()
                 try:
-                    await message.author.send(f"{message.guild.name} sunucusunda yasakli kelime kullandiginiz icin mesajiniz engellendi!")
+                    await message.author.send("Yasakli kelime kullandiginiz icin mesajiniz engellendi!")
                 except:
                     pass
                 await message.channel.send(f"{message.author.mention}, bu kelime yasak!", delete_after=4)
@@ -158,15 +158,15 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
-@bot.tree.command(name="merkezayarla", description="Global loglarin gidecegi ana karargah kanalini belirler.")
+@bot.tree.command(name="merkezayarla", description="Global log kanalini belirler.")
 @app_commands.default_permissions(administrator=True)
 async def slash_merkezayarla(interaction: discord.Interaction, kanal: discord.TextChannel):
     global MAIN_HEADQUARTER_GUILD_ID, CENTRAL_LOG_CHANNEL_ID
     MAIN_HEADQUARTER_GUILD_ID = interaction.guild.id
     CENTRAL_LOG_CHANNEL_ID = kanal.id
-    await interaction.response.send_message(f"Merkez Karargah ve Log Kanali basariyla {kanal.mention} olarak ayarlandi!", ephemeral=True)
+    await interaction.response.send_message(f"Merkez Karargah ayarlandi: {kanal.mention}", ephemeral=True)
 
-@bot.tree.command(name="tamyasakla", description="Bir kullaniciyi botun bagli oldugu TUM sunuculardan banlar.")
+@bot.tree.command(name="tamyasakla", description="Kullaniciyi tum sunuculardan banlar.")
 @app_commands.default_permissions(ban_members=True)
 async def slash_tamyasakla(interaction: discord.Interaction, uye_id: str, sebep: str):
     await interaction.response.defer(ephemeral=True)
@@ -174,7 +174,7 @@ async def slash_tamyasakla(interaction: discord.Interaction, uye_id: str, sebep:
     try:
         target_id = int(uye_id)
     except ValueError:
-        await interaction.followup.send("Gecersiz kullanici ID'si!", ephemeral=True)
+        await interaction.followup.send("Gecersiz ID!", ephemeral=True)
         return
 
     success_count = 0
@@ -184,22 +184,22 @@ async def slash_tamyasakla(interaction: discord.Interaction, uye_id: str, sebep:
             if member:
                 try:
                     dm_embed = discord.Embed(
-                        title="BTF Kara Kuvvetleri - Global Tam Yasaklama",
-                        description=f"Yetkili: {interaction.user}\nSebep / Kanit: {sebep}",
+                        title="BTF Kara Kuvvetleri - Global Yasaklama",
+                        description=f"Sebep: {sebep}",
                         color=discord.Color.dark_red()
                     )
                     await member.send(embed=dm_embed)
                 except:
                     pass
                 
-                await guild.ban(member, reason=f"Global Tam Yasakla | Sebep: {sebep}")
+                await guild.ban(member, reason=sebep)
                 success_count += 1
         except:
             pass
 
-    await interaction.followup.send(f"Islem tamam! Kullanici botun bagli oldugu {success_count} sunucudan tamamen yasaklandi.", ephemeral=True)
+    await interaction.followup.send(f"Islem tamam! {success_count} sunucudan yasaklandi.", ephemeral=True)
 
-@bot.tree.command(name="yasakkaldir", description="Banlanan bir kullanicinin global yasagini kaldirir.")
+@bot.tree.command(name="yasakkaldir", description="Global yasagi kaldirir.")
 @app_commands.default_permissions(ban_members=True)
 async def slash_yasakkaldir(interaction: discord.Interaction, uye_id: str):
     await interaction.response.defer(ephemeral=True)
@@ -207,20 +207,20 @@ async def slash_yasakkaldir(interaction: discord.Interaction, uye_id: str):
         target_id = int(uye_id)
         user = await bot.fetch_user(target_id)
     except:
-        await interaction.followup.send("Gecerli bir kullanici bulunamadi.", ephemeral=True)
+        await interaction.followup.send("Kullanici bulunamadi.", ephemeral=True)
         return
 
     unban_count = 0
     for guild in bot.guilds:
         try:
-            await guild.unban(user, reason=f"Global Yasak Kaldirma | Yetkili: {interaction.user}")
+            await guild.unban(user, reason="Global Yasak Kaldirma")
             unban_count += 1
         except:
             pass
 
-    await interaction.followup.send(f"Kullanicinin yasagi {unban_count} sunucudan kaldirildi.", ephemeral=True)
+    await interaction.followup.send(f"Yasagi {unban_count} sunucudan kaldirildi.", ephemeral=True)
 
-@bot.tree.command(name="dm", description="Bot uzerinden kullaniciya ozel mesaj gonderir.")
+@bot.tree.command(name="dm", description="Kullaniciya ozel mesaj gonderir.")
 @app_commands.default_permissions(administrator=True)
 async def slash_dm(interaction: discord.Interaction, uye: discord.Member, mesaj: str):
     await interaction.response.defer(ephemeral=True)
@@ -230,7 +230,24 @@ async def slash_dm(interaction: discord.Interaction, uye: discord.Member, mesaj:
             description=mesaj,
             color=discord.Color.gold()
         )
-        dm_embed.set_footer(text=f"Gonderen Yetkili: {interaction.user}")
+        await uye.send(embed=dm_embed)
+        await interaction.followup.send(f"Mesaj {uye.mention} adli kullaniciya iletildi.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"Mesaj atilamadi: {e}", ephemeral=True)
+
+@bot.tree.command(name="ticketkur", description="Destek paneli kurar.")
+@app_commands.default_permissions(administrator=True)
+async def slash_ticketkur(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="BTF Kara Kuvvetleri Destek Merkezi",
+        description="Destek talebi acmak icin asagidaki butona tiklayiniz.",
+        color=discord.Color.dark_blue()
+    )
+    await interaction.channel.send(embed=embed, view=TicketCreateView())
+    await interaction.response.send_message("Destek paneli kuruldu!", ephemeral=True)
+
+bot.run(os.getenv("TOKEN"))
+li: {interaction.user}")
         await uye.send(embed=dm_embed)
         await interaction.followup.send(f"Mesaj {uye.mention} adli kullaniciya ozelden iletildi.", ephemeral=True)
     except Exception as e:
