@@ -248,6 +248,24 @@ async def slash_ticketkur(interaction: discord.Interaction):
     await interaction.response.send_message("Destek paneli bu kanala basariyla kuruldu!", ephemeral=True)
 
 bot.run(os.getenv("TOKEN"))
+li: {interaction.user}")
+        await uye.send(embed=dm_embed)
+        await interaction.followup.send(f"Mesaj {uye.mention} adli kullaniciya ozelden iletildi.", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"Kullaniciya mesaj atilamadi: {e}", ephemeral=True)
+
+@bot.tree.command(name="ticketkur", description="Destek talebi acilabilecek paneli kurar.")
+@app_commands.default_permissions(administrator=True)
+async def slash_ticketkur(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="BTF Kara Kuvvetleri Destek ve Iletisim Merkezi",
+        description="Yetkililerle iletisime gecmek icin asagidaki Destek Talebi Ac butonuna tiklayiniz.",
+        color=discord.Color.dark_blue()
+    )
+    await interaction.channel.send(embed=embed, view=TicketCreateView())
+    await interaction.response.send_message("Destek paneli bu kanala basariyla kuruldu!", ephemeral=True)
+
+bot.run(os.getenv("TOKEN"))
               await guild.ban(member, reason=f"Global Tam Yasakla Komutu | Sebep: {sebep} | Yetkili: {interaction.user}")
                 success_count += 1
         except:
