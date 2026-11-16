@@ -7,7 +7,7 @@ intents.guilds = intents.members = intents.message_content = intents.guild_messa
 
 class BTFGuardBot(commands.Bot):
     def __init__(self): super().__init__(command_prefix="!", intents=intents)
-    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Sistem Aktif.")
+    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Kararlı Sistem Aktif.")
 
 bot = BTFGuardBot()
 CFG = {"hq": None, "clog": None, "mlog": None, "ilog": None, "slog": None, "blog": None, "klog": None, "krol": None, "perms": {}, "tags": [], "gkb_bans": [], "limit": 3, "guard": True}
@@ -140,17 +140,20 @@ async def on_member_join(m):
     if is_bl(m) and CFG["krol"]:
         rol = m.guild.get_role(CFG["krol"])
         if rol:
-            try: await m.add_roles(rol, reason="Kara liste tag"); 
-            if CFG["klog"]: await bot.get_channel(CFG["klog"]).send(f"🏴 {m.mention} yasaklı tag nedeniyle karantinaya alındı!")
+            try:
+                await m.add_roles(rol, reason="Kara liste tag")
+                if CFG["klog"]: await bot.get_channel(CFG["klog"]).send(f"🏴 {m.mention} yasaklı tag nedeniyle karantinaya alındı!")
             except: pass
 
 @bot.event
 async def on_member_unban(guild, user):
     if user.id in CFG["gkb_bans"]:
         for g in bot.guilds:
-            try: await g.ban(user, reason="GKB Koruma")
+            try: await g.ban(user, reason="GKB Koruma - Kaldırma Engellendi")
             except: pass
-        if CFG["blog"]: await bot.get_channel(CFG["blog"]).send(f"🚨 GKB Yasaklı kullanıcı ({user}) banı açılmaya çalışıldı! Bot tekrar banladı.")
+        if CFG["blog"]:
+            try: await bot.get_channel(CFG["blog"]).send(f"🚨 GKB Yasaklı kullanıcı ({user}) banı açılmaya çalışıldı! Bot tekrar banladı.")
+            except: pass
 
 @bot.event
 async def on_member_update(before, after):
@@ -160,7 +163,9 @@ async def on_member_update(before, after):
             try: await after.add_roles(rol, reason="Tag güncellemesi")
             except: pass
     if before.timed_out_until and not after.timed_out_until:
-        if CFG["slog"]: await bot.get_channel(CFG["slog"]).send(f"⚠️ {after.mention} susturması manuel kaldırıldı! Bot tekrar uyguladı.")
+        if CFG["slog"]:
+            try: await bot.get_channel(CFG["slog"]).send(f"⚠️ {after.mention} susturması manuel kaldırıldı! Bot tekrar uyguladı.")
+            except: pass
         try: await after.timeout(before.timed_out_until, reason="Koruma")
         except: pass
     if CFG["guard"] and len(before.roles) > len(after.roles):
@@ -180,8 +185,12 @@ async def on_member_update(before, after):
 @bot.event
 async def on_message_delete(m):
     if m.author.bot: return
-    if m.attachments and CFG["ilog"]: await bot.get_channel(CFG["ilog"]).send(embed=discord.Embed(title="🖼️ Silinen Görsel", color=discord.Color.purple()).add_field(name="Kullanıcı", value=m.author.mention).set_image(url=m.attachments[0].url))
-    if m.content and CFG["mlog"]: await bot.get_channel(CFG["mlog"]).send(embed=discord.Embed(title="🗑️ Silinen Mesaj", color=discord.Color.orange()).add_field(name="Kullanıcı", value=m.author.mention).add_field(name="İçerik", value=m.content[:1024]))
+    if m.attachments and CFG["ilog"]:
+        try: await bot.get_channel(CFG["ilog"]).send(embed=discord.Embed(title="🖼️ Silinen Görsel", color=discord.Color.purple()).add_field(name="Kullanıcı", value=m.author.mention).set_image(url=m.attachments[0].url))
+        except: pass
+    if m.content and CFG["mlog"]:
+        try: await bot.get_channel(CFG["mlog"]).send(embed=discord.Embed(title="🗑️ Silinen Mesaj", color=discord.Color.orange()).add_field(name="Kullanıcı", value=m.author.mention).add_field(name="İçerik", value=m.content[:1024]))
+        except: pass
 
 @bot.event
 async def on_message(m):
