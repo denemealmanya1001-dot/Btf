@@ -34,7 +34,7 @@ CFG = load_config()
 
 class BTFGuardBot(commands.Bot):
     def __init__(self): super().__init__(command_prefix="!", intents=intents)
-    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Doğal Süre ve Kanıtlı Susturma Aktif.")
+    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Görsel Şablon Onay Sistemi Aktif.")
 
 bot = BTFGuardBot()
 YASAKLI = ["kufur1", "reklamlinki"]
@@ -178,22 +178,33 @@ class TicketView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None); self.add_item(TicketCreateSelect())
 
 class BanOnayView(discord.ui.View):
-    def __init__(self, uid: int, reason: str, kanit: str, gorsel: str, source_guild: str, admin_user: str):
-        super().__init__(timeout=None); self.uid, self.reason, self.kanit, self.gorsel, self.source_guild, self.admin_user = uid, reason, kanit, gorsel, source_guild, admin_user
-    @discord.ui.button(label="Reddet", style=discord.ButtonStyle.green, custom_id="g_app")
-    async def app(self, i: discord.Interaction, b: discord.ui.Button):
-        if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
-        for c in self.children: c.disabled = True
-        emb = i.message.embeds[0]; emb.color = discord.Color.green(); emb.add_field(name="Durum", value=f"Reddedildi - {i.user.mention}")
-        await i.message.edit(view=self, embed=emb); await i.response.send_message("İşlem iptal edildi.", ephemeral=True)
-    @discord.ui.button(label="Tüm Sunuculardan Yasakla & Karantina", style=discord.ButtonStyle.red, custom_id="g_ban")
+    def __init__(self, uid: int, reason: str, kanit: str, gorsel: str, requester: str):
+        super().__init__(timeout=None)
+        self.uid, self.reason, self.kanit, self.gorsel, self.requester = uid, reason, kanit, gorsel, requester
+    
+    @discord.ui.button(label="Kanıtı Aç", style=discord.ButtonStyle.link, url="https://discord.com")
+    async def link_btn(self, i: discord.Interaction, b: discord.ui.Button): pass
+
+    @discord.ui.button(label="Onayla", style=discord.ButtonStyle.green, custom_id="g_ban")
     async def gban(self, i: discord.Interaction, b: discord.ui.Button):
         if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
         for c in self.children: c.disabled = True
-        CFG["ban_records"][str(self.uid)] = {"reason": self.reason, "admin": self.admin_user, "proof": self.gorsel}
+        
+        CFG["ban_records"][str(self.uid)] = {"reason": self.reason, "admin": str(i.user), "proof": self.gorsel}
         save_config()
-        emb = i.message.embeds[0]; emb.color = discord.Color.dark_red(); emb.add_field(name="Durum", value=f"Onaylandı ({self.source_guild}) - {i.user.mention}")
-        await i.message.edit(view=self, embed=emb); cnt = 0
+        
+        emb = discord.Embed(
+            title="✅ Onaylandı ve Uygulandı",
+            description=f"**Onaylayan:** {i.user.mention} (`@{i.user.name}`)\n**İsteği Atan:** {self.requester}\n**Tür:** Tam Yasaklama\n**Hedef:** <@{self.uid}> (`{self.uid}`)\n**Sebep:** {self.reason}",
+            color=discord.Color.green()
+        )
+        if self.gorsel: emb.set_image(url=self.gorsel)
+        await i.message.edit(view=self, embed=emb)
+        
+        cnt = 0
+        try: target_user = await bot.fetch_user(self.uid)
+        except: target_user = None
+
         for g in bot.guilds:
             try:
                 m = await g.fetch_member(self.uid)
@@ -209,31 +220,62 @@ class BanOnayView(discord.ui.View):
                         if rol: await m.add_roles(rol, reason="Merkez Onaylı Karantina")
                     cnt += 1
             except: pass
-        await i.response.send_message(f"✅ {cnt} sunucudan banlandı.", ephemeral=True)
+        await i.response.send_message(f"✅ İşlem onaylandı. {cnt} sunucuda uygulandı.", ephemeral=True)
 
-class UnbanOnayView(discord.ui.View):
-    def __init__(self, uid: int, user_str: str, source_guild: str, admin_user: str):
-        super().__init__(timeout=None); self.uid, self.user_str, self.source_guild, self.admin_user = uid, user_str, source_guild, admin_user
-    @discord.ui.button(label="Unbanı Reddet", style=discord.ButtonStyle.green, custom_id="u_app")
+    @discord.ui.button(label="Reddet", style=discord.ButtonStyle.red, custom_id="g_app")
     async def app(self, i: discord.Interaction, b: discord.ui.Button):
         if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
         for c in self.children: c.disabled = True
-        emb = i.message.embeds[0]; emb.color = discord.Color.green(); emb.add_field(name="Durum", value=f"Unban Reddedildi - {i.user.mention}")
-        await i.message.edit(view=self, embed=emb); await i.response.send_message("Unban talebi reddedildi.", ephemeral=True)
-    @discord.ui.button(label="Tüm Sunuculardan Unban At", style=discord.ButtonStyle.red, custom_id="u_ban")
+        
+        emb = discord.Embed(
+            title="❌ İstek Reddedildi",
+            description=f"**Reddeden:** {i.user.mention} (`@{i.user.name}`)\n**İsteği Atan:** {self.requester}\n**Tür:** Tam Yasaklama\n**Hedef:** <@{self.uid}> (`{self.uid}`)\n**Sebep:** {self.reason}",
+            color=discord.Color.red()
+        )
+        if self.gorsel: emb.set_image(url=self.gorsel)
+        await i.message.edit(view=self, embed=emb)
+        await i.response.send_message("❌ İstek reddedildi.", ephemeral=True)
+
+class UnbanOnayView(discord.ui.View):
+    def __init__(self, uid: int, sebep: str, requester: str):
+        super().__init__(timeout=None)
+        self.uid, self.sebep, self.requester = uid, sebep, requester
+
+    @discord.ui.button(label="Onayla", style=discord.ButtonStyle.green, custom_id="u_ban")
     async def gban(self, i: discord.Interaction, b: discord.ui.Button):
         if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
         for c in self.children: c.disabled = True
+        
         if str(self.uid) in CFG["ban_records"]: del CFG["ban_records"][str(self.uid)]; save_config()
-        emb = i.message.embeds[0]; emb.color = discord.Color.blue(); emb.add_field(name="Durum", value=f"Unban Onaylandı ({self.source_guild}) - {i.user.mention}")
-        await i.message.edit(view=self, embed=emb); cnt = 0
+        
+        emb = discord.Embed(
+            title="✅ Onaylandı ve Uygulandı",
+            description=f"**Onaylayan:** {i.user.mention} (`@{i.user.name}`)\n**İsteği Atan:** {self.requester}\n**Tür:** Tam Yasak Kaldırma\n**Hedef:** <@{self.uid}> (`{self.uid}`)\n**Sebep:** {self.sebep}",
+            color=discord.Color.green()
+        )
+        await i.message.edit(view=self, embed=emb)
+        
+        cnt = 0
         try: user = await bot.fetch_user(self.uid)
         except: user = None
         if user:
             for g in bot.guilds:
                 try: await g.unban(user, reason="Merkez Onaylı Unban"); cnt += 1
                 except: pass
-        await i.response.send_message(f"✅ {cnt} sunucudan yasak kaldırıldı.", ephemeral=True)
+        await i.response.send_message(f"✅ Unban onaylandı. {cnt} sunucuda uygulandı.", ephemeral=True)
+
+    @discord.ui.button(label="Reddet", style=discord.ButtonStyle.red, custom_id="u_app")
+    async def app(self, i: discord.Interaction, b: discord.ui.Button):
+        if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
+        for c in self.children: c.disabled = True
+        
+        emb = discord.Embed(
+            title="❌ İstek Reddedildi",
+            description=f"**Reddeden:** {i.user.mention} (`@{i.user.name}`)\n**İsteği Atan:** {self.requester}\n**Tür:** Tam Yasak Kaldırma\n**Hedef:** <@{self.uid}> (`{self.uid}`)\n**Sebep:** {self.sebep}",
+            color=discord.Color.red()
+        )
+        await i.message.edit(view=self, embed=emb)
+        await i.response.send_message("❌ Unban isteği reddedildi.", ephemeral=True)
 
 @bot.event
 async def on_ready():
@@ -335,11 +377,17 @@ async def tam_yasak_at(i: discord.Interaction, uye_id: str, sebep: str, kanit_me
     try: uid = int(uye_id)
     except: return await i.followup.send("Geçersiz ID!", ephemeral=True)
     if not CFG["hq"] or not CFG["clog"]: return await i.followup.send("Merkez log ayarlanmamış!", ephemeral=True)
-    emb = discord.Embed(title=f"🛡️ Merkez Onaylı Yasak Talebi [{i.guild.name}]", description=f"ID: `{uid}`\nSebep: {sebep}\nKanıt: {kanit_metni}\nTalep Eden: {i.user.mention}", color=discord.Color.orange())
+    
+    emb = discord.Embed(
+        title="🔨 Tam Yasak Onayı Bekliyor",
+        description=f"**İsteği atan:** {i.user.mention} (`@{i.user.name}`)\n**Hedef:** <@{uid}> (`{uid}`)\n**Sebep:** {sebep}",
+        color=discord.Color.gold()
+    )
     emb.set_image(url=kanit_gorsel.url)
+    
     terminal_ch = bot.get_guild(CFG["hq"]).get_channel(CFG["clog"])
     if terminal_ch:
-        await terminal_ch.send(embed=emb, view=BanOnayView(uid, f"{sebep} | Kanıt: {kanit_metni}", kanit_metni, kanit_gorsel.url, i.guild.name, str(i.user)))
+        await terminal_ch.send(content="@itifik Ordusu Yönetimi", embed=emb, view=BanOnayView(uid, sebep, kanit_metni, kanit_gorsel.url, f"{i.user.mention} (`@{i.user.name}`)"))
         await i.followup.send("✅ Yasak talebi terminal sunucusuna gönderildi.", ephemeral=True)
     else: await i.followup.send("❌ Terminal kanal bulunamadı!", ephemeral=True)
 
@@ -351,14 +399,19 @@ async def tam_yasak_kaldır(i: discord.Interaction, uye_id: str, sebep: str):
     try: uid = int(uye_id); user = await bot.fetch_user(uid)
     except: return await i.followup.send("Kullanıcı bulunamadı.", ephemeral=True)
     if not CFG["hq"] or not CFG["clog"]: return await i.followup.send("Merkez log ayarlanmamış!", ephemeral=True)
-    emb = discord.Embed(title=f"🔓 Merkez Onaylı Unban Talebi [{i.guild.name}]", description=f"Kullanıcı: {user} (`{uid}`)\nSebep: {sebep}\nTalep Eden: {i.user.mention}", color=discord.Color.blue())
+    
+    emb = discord.Embed(
+        title="🔓 Tam Yasak Kaldırma Onayı Bekliyor",
+        description=f"**İsteği atan:** {i.user.mention} (`@{i.user.name}`)\n**Hedef:** {user.mention} (`{uid}`)\n**Sebep:** {sebep}",
+        color=discord.Color.blue()
+    )
     terminal_ch = bot.get_guild(CFG["hq"]).get_channel(CFG["clog"])
     if terminal_ch:
-        await terminal_ch.send(embed=emb, view=UnbanOnayView(uid, str(user), i.guild.name, str(i.user)))
+        await terminal_ch.send(content="@itifik Ordusu Yönetimi", embed=emb, view=UnbanOnayView(uid, sebep, f"{i.user.mention} (`@{i.user.name}`)"))
         await i.followup.send("✅ Unban talebi terminal sunucusuna merkez onaya gönderildi.", ephemeral=True)
     else: await i.followup.send("❌ Terminal kanal bulunamadı!", ephemeral=True)
 
-@bot.tree.command(name="sustur", description="Kullanıcıyı süreli susturur (Örn: 28 gün)")
+@bot.tree.command(name="sustur", description="Kullanıcıyı süreli susturur")
 async def sustur(i: discord.Interaction, uye: discord.Member, sure: str, sebep: str, kanit_gorsel: discord.Attachment):
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not has_perm(i, "sustur"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
