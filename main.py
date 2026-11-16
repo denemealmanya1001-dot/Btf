@@ -10,7 +10,7 @@ DEFAULT_CFG = {
     "hq": None, "clog": None, "mlog": None, "ilog": None, "slog": None, "blog": None, "klog": None,
     "perms": {}, "tags": [], "gkb_bans": [], "limit": 3, "guard": True, "chan_limit": 2, "admin_guard": True,
     "ticket_title": "Destek Merkezi", "ticket_desc": "Destek açmak için aşağıdaki butona tıklayın.", "ticket_cats": {}, "ticket_roles": {},
-    "master_users": ["metexl0", "nexon"], "ban_records": {}
+    "master_users": ["metexl0", "nexon"], "ban_records": {}, "command_stats": {}
 }
 
 def load_config():
@@ -34,7 +34,7 @@ CFG = load_config()
 
 class BTFGuardBot(commands.Bot):
     def __init__(self): super().__init__(command_prefix="!", intents=intents)
-    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Tam Yasak Yetkilisi Etiketleme Aktif.")
+    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Mega Yönetim Paneli Aktif.")
 
 bot = BTFGuardBot()
 YASAKLI = ["kufur1", "reklamlinki"]
@@ -79,6 +79,56 @@ def is_bl(m: discord.Member) -> bool:
     s = f"{m.name} {m.display_name} {getattr(getattr(m, 'primary_guild', None), 'tag', '')}".lower()
     return any(t.lower() in s for t in CFG["tags"])
 
+def log_command_usage(cmd_name: str):
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    if "command_stats" not in CFG: CFG["command_stats"] = {}
+    if today not in CFG["command_stats"]: CFG["command_stats"][today] = {}
+    CFG["command_stats"][today][cmd_name] = CFG["command_stats"][today].get(cmd_name, 0) + 1
+    save_config()
+
+# --- MEGADAN KAPSAMLI YÖNETİM ARAYÜZLERİ ---
+
+class MegaPanelsView(discord.ui.View):
+    def __init__(self, i: discord.Interaction):
+        super().__init__(timeout=180)
+        self.i = i
+
+    @discord.ui.button(label="Komut Yetkileri", style=discord.ButtonStyle.blurple, emoji="🔐", row=0)
+    async def btn_perms(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin(interaction): return await interaction.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
+        v = discord.ui.View(); v.add_item(CmdSelect())
+        await interaction.response.send_message("🔐 Hangi komutun yetkisini düzenlemek istiyorsunuz?", view=v, ephemeral=True)
+
+    @discord.ui.button(label="Kara Liste (Tag/Üye)", style=discord.ButtonStyle.danger, emoji="🏴", row=0)
+    async def btn_blacklist(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin(interaction): return await interaction.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
+        await interaction.response.send_modal(TagModal())
+
+    @discord.ui.button(label="Bot Kullanım İstatistikleri", style=discord.ButtonStyle.success, emoji="📊", row=1)
+    async def btn_stats(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin(interaction): return await interaction.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
+        stats = CFG.get("command_stats", {})
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        today_stats = stats.get(today, {})
+        total_today = sum(today_stats.values())
+        
+        desc = f"📅 **Bugünün Tarihi:** `{today}`\n📊 **Bugün Toplam Kullanım:** `{total_today}` kez\n\n**Komut Bazlı Dağılım:**\n"
+        if today_stats:
+            for cmd, count in today_stats.items():
+                desc += f"• `/{cmd}`: **{count}** kez\n"
+        else:
+            desc += "Bugün henüz bot komutu kullanılmadı."
+            
+        emb = discord.Embed(title="📊 Bot Kullanım İstatistikleri", description=desc, color=discord.Color.green())
+        await interaction.response.send_message(embed=emb, ephemeral=True)
+
+    @discord.ui.button(label="Veritabanı Yenile / Sıfırla", style=discord.ButtonStyle.secondary, emoji="🔄", row=1)
+    async def btn_db(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin(interaction): return await interaction.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
+        global CFG
+        CFG = load_config()
+        await interaction.response.send_message("✅ Veritabanı ve ayarlar `config.json` dosyasından başarıyla yeniden yüklendi / tazelendi!", ephemeral=True)
+
 class RoleSelectCmd(discord.ui.RoleSelect):
     def __init__(self, cmd: str):
         self.cmd = cmd
@@ -95,17 +145,26 @@ class CmdSelect(discord.ui.Select):
         v = discord.ui.View(timeout=60); v.add_item(RoleSelectCmd(self.values[0]))
         await i.response.send_message(f"🔐 `/{self.values[0]}` için rolleri seçin:", view=v, ephemeral=True)
 
-class TagModal(discord.ui.Modal, title="Tag Kara Liste Yönetimi"):
-    islem = discord.ui.TextInput(label="İşlem (ekle / sil)", placeholder="ekle", required=True)
-    tag = discord.ui.TextInput(label="Yasaklanacak Guild / Klan Tagı", placeholder="BTF", required=True)
+class TagModal(discord.ui.Modal, title="Kara Liste Tag Yönetimi"):
+    islem = discord.ui.TextInput(label="İşlem (ekle / sil / liste)", placeholder="ekle", required=True)
+    tag = discord.ui.TextInput(label="Yasaklanacak Guild / Klan Tagı", placeholder="BTF", required=False)
     async def on_submit(self, i: discord.Interaction):
+        islem_turu = self.islem.value.strip().lower()
+        if islem_turu == "liste":
+            aktif_tags = ", ".join([f"`{t}`" for t in CFG["tags"]]) if CFG["tags"] else "Kara listede hiç tag yok."
+            return await i.response.send_message(f"🏴 **Aktif Karalistteki Taglar:**\n{aktif_tags}", ephemeral=True)
+            
         t = self.tag.value.strip()
-        if self.islem.value.strip().lower() == "ekle":
+        if not t: return await i.response.send_message("❌ Lütfen bir tag girin!", ephemeral=True)
+        
+        if islem_turu == "ekle":
             if t not in CFG["tags"]: CFG["tags"].append(t); save_config()
-            await i.response.send_message(f"🚫 `{t}` kara listeye alındı.", ephemeral=True)
-        else:
+            await i.response.send_message(f"🚫 `{t}` tagı kara listeye başarıyla eklendi.", ephemeral=True)
+        elif islem_turu == "sil":
             if t in CFG["tags"]: CFG["tags"].remove(t); save_config()
-            await i.response.send_message(f"✅ `{t}` listeden çıkarıldı.", ephemeral=True)
+            await i.response.send_message(f"✅ `{t}` tagı kara listeden çıkarıldı.", ephemeral=True)
+        else:
+            await i.response.send_message("❌ Geçersiz işlem! 'ekle', 'sil' veya 'liste' yazmalısınız.", ephemeral=True)
 
 class GuardModal(discord.ui.Modal, title="Guard Limit Ayarları"):
     kan_lim = discord.ui.TextInput(label="Kanal Silme Sınırı", placeholder="2", required=True)
@@ -127,18 +186,6 @@ class DuyuruModal(discord.ui.Modal, title="Resmi Duyuru Paneli"):
         emb.set_footer(text=f"Yayınlayan: {i.user.name}", icon_url=i.user.display_avatar.url)
         await self.kanal.send(content="@everyone", embed=emb)
         await i.response.send_message(f"✅ Duyuru başarıyla {self.kanal.mention} kanalına gönderildi.", ephemeral=True)
-
-class YonetimView(discord.ui.View):
-    def __init__(self): super().__init__(timeout=None)
-    @discord.ui.button(label="Komut Yetkileri", style=discord.ButtonStyle.blurple, emoji="🔐", custom_id="yp_cmd")
-    async def c(self, i: discord.Interaction, b: discord.ui.Button):
-        if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
-        v = discord.ui.View(); v.add_item(CmdSelect())
-        await i.response.send_message("Komut seçin:", view=v, ephemeral=True)
-    @discord.ui.button(label="Tag Kara Liste", style=discord.ButtonStyle.danger, emoji="🏴", custom_id="yp_tag")
-    async def t(self, i: discord.Interaction, b: discord.ui.Button):
-        if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
-        await i.response.send_modal(TagModal())
 
 class GuardView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
@@ -342,6 +389,7 @@ async def on_message(m):
 
 @bot.tree.command(name="bot-yetkili-ayarla", description="Master bot yetkilisi ekler/kaldırır.")
 async def bot_yetkili_ayarla(i: discord.Interaction, islem: str, kullanici_adi: str):
+    log_command_usage("bot-yetkili-ayarla")
     if not is_master(i.user): return await i.response.send_message("❌ Yalnızca master yetkililer kullanabilir!", ephemeral=True)
     username = kullanici_adi.strip().lower()
     if islem.strip().lower() == "ekle":
@@ -353,6 +401,7 @@ async def bot_yetkili_ayarla(i: discord.Interaction, islem: str, kullanici_adi: 
 
 @bot.tree.command(name="gkb-yasakla", description="GKB global ban")
 async def gkb_yasakla(i: discord.Interaction, uye_id: str, sebep: str):
+    log_command_usage("gkb-yasakla")
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not is_gkb(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await i.response.defer(ephemeral=True)
@@ -373,12 +422,13 @@ async def gkb_yasakla(i: discord.Interaction, uye_id: str, sebep: str):
 
 @bot.tree.command(name="tam-yasak-at", description="Merkez onaylı ban talebi")
 async def tam_yasak_at(i: discord.Interaction, uye_id: str, sebep: str, kanit_metni: str, kanit_gorsel: discord.Attachment):
+    log_command_usage("tam-yasak-at")
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not has_perm(i, "tam-yasak-at"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await i.response.defer(ephemeral=True)
     try: uid = int(uye_id)
     except: return await i.followup.send("Geçersiz ID!", ephemeral=True)
-    if not CFG["hq"] or not CFG["clog"]: return await i.response.send_message("Merkez log ayarlanmamış!", ephemeral=True)
+    if not CFG["hq"] or not CFG["clog"]: return await i.followup.send("Merkez log ayarlanmamış!", ephemeral=True)
     
     emb = discord.Embed(
         title="🔨 Tam Yasak Onayı Bekliyor",
@@ -405,6 +455,7 @@ async def tam_yasak_at(i: discord.Interaction, uye_id: str, sebep: str, kanit_me
 
 @bot.tree.command(name="tam-yasak-kaldır", description="Merkez onaylı ban kaldırma talebi")
 async def tam_yasak_kaldır(i: discord.Interaction, uye_id: str, sebep: str):
+    log_command_usage("tam-yasak-kaldır")
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not has_perm(i, "tam-yasak-kaldır"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await i.response.defer(ephemeral=True)
@@ -436,6 +487,7 @@ async def tam_yasak_kaldır(i: discord.Interaction, uye_id: str, sebep: str):
 
 @bot.tree.command(name="sustur", description="Kullanıcıyı süreli susturur")
 async def sustur(i: discord.Interaction, uye: discord.Member, sure: str, sebep: str, kanit_gorsel: discord.Attachment):
+    log_command_usage("sustur")
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not has_perm(i, "sustur"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await i.response.defer(ephemeral=True)
@@ -455,24 +507,28 @@ async def sustur(i: discord.Interaction, uye: discord.Member, sure: str, sebep: 
 
 @bot.tree.command(name="susturma-kaldır", description="Susturma kaldır")
 async def susturma_kaldır(i: discord.Interaction, uye: discord.Member):
+    log_command_usage("susturma-kaldır")
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not has_perm(i, "susturma-kaldır"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await uye.timeout(None); await i.response.send_message("✅ Susturma kaldırıldı.", ephemeral=True)
 
 @bot.tree.command(name="rol-ver", description="Rol ver")
 async def rol_ver(i: discord.Interaction, uye: discord.Member, rol: discord.Role):
+    log_command_usage("rol-ver")
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not has_perm(i, "rol-ver"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await uye.add_roles(rol); await i.response.send_message("✅ Rol verildi.", ephemeral=True)
 
 @bot.tree.command(name="rol-al", description="Rol al")
 async def rol_al(i: discord.Interaction, uye: discord.Member, rol: discord.Role):
+    log_command_usage("rol-al")
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not has_perm(i, "rol-al"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await uye.remove_roles(rol); await i.response.send_message("✅ Rol alındı.", ephemeral=True)
 
 @bot.tree.command(name="yasak-sorgu", description="Kullanıcı ban durumunu sorgula")
 async def yasak_sorgu(i: discord.Interaction, uye_id: str):
+    log_command_usage("yasak-sorgu")
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not has_perm(i, "yasak-sorgu"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await i.response.defer(ephemeral=True)
@@ -494,6 +550,7 @@ async def yasak_sorgu(i: discord.Interaction, uye_id: str):
 
 @bot.tree.command(name="dm-mesaj", description="DM gönder")
 async def dm_mesaj(i: discord.Interaction, uye: discord.Member, mesaj: str):
+    log_command_usage("dm-mesaj")
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not has_perm(i, "dm-mesaj"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     try:
@@ -503,12 +560,14 @@ async def dm_mesaj(i: discord.Interaction, uye: discord.Member, mesaj: str):
 
 @bot.tree.command(name="duyur", description="Duyuru gönder")
 async def duyur(i: discord.Interaction, kanal: discord.TextChannel):
+    log_command_usage("duyur")
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not has_perm(i, "duyur"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await i.response.send_modal(DuyuruModal(kanal))
 
 @bot.tree.command(name="ticket-kur", description="Ticket kur")
 async def ticket_kur(i: discord.Interaction):
+    log_command_usage("ticket-kur")
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     emb = discord.Embed(title=CFG["ticket_title"], description=CFG["ticket_desc"], color=discord.Color.dark_blue())
@@ -540,10 +599,22 @@ async def log_ayarla(i: discord.Interaction, mesaj_log: discord.TextChannel, gor
     save_config()
     await i.response.send_message("✅ Tüm terminal log kanalları başarıyla ayarlandı.", ephemeral=True)
 
-@bot.tree.command(name="bot-yönetim-paneli", description="Yönetim paneli")
+@bot.tree.command(name="bot-yönetim-paneli", description="Mega Bot Yönetim ve Kontrol Paneli")
 async def bot_yönetim_paneli(i: discord.Interaction):
     if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
-    await i.response.send_message(embed=discord.Embed(title="⚙️ Yönetim", color=discord.Color.dark_blue()), view=YonetimView(), ephemeral=True)
+    
+    emb = discord.Embed(
+        title="⚙️ BTF Turkish Armed Forces - Mega Yönetim Paneli",
+        description=(
+            "Aşağıdaki butonları kullanarak botun tüm gelişmiş yönetim modüllerine erişebilirsiniz:\n\n"
+            "🔐 **Komut Yetkileri:** Hangi rolün hangi komutu kullanabileceğini ayarlayın.\n"
+            "🏴 **Kara Liste (Tag/Üye):** Yasaklı sunucu/klan taglarını yönetin veya listeleyin.\n"
+            "📊 **Kullanım İstatistikleri:** Botun bugün kaç kez komut çalıştırdığını görüntüleyin.\n"
+            "🔄 **Veritabanı Yenile:** Ayarları `config.json` üzerinden anlık tazeyin."
+        ),
+        color=discord.Color.dark_blue()
+    )
+    await i.response.send_message(embed=emb, view=MegaPanelsView(i), ephemeral=True)
 
 @bot.tree.command(name="guard-yönetim-paneli", description="Guard paneli")
 async def guard_yönetim_paneli(i: discord.Interaction):
