@@ -7,11 +7,11 @@ intents.guilds = intents.members = intents.message_content = intents.guild_messa
 
 class BTFGuardBot(commands.Bot):
     def __init__(self): super().__init__(command_prefix="!", intents=intents)
-    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Güncellenmiş Sistem Aktif.")
+    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Detaylı Log Sistemi Aktif.")
 
 bot = BTFGuardBot()
 CFG = {
-    "hq": None, "clog": None, "mlog": None, "ilog": None, "slog": None, "blog": None, "klog": None, "krol": None,
+    "hq": None, "clog": None, "mlog": None, "ilog": None, "slog": None, "blog": None, "klog": None,
     "perms": {}, "tags": [], "gkb_bans": [], "limit": 3, "guard": True, "chan_limit": 2, "admin_guard": True,
     "ticket_title": "Destek Merkezi", "ticket_desc": "Destek açmak için aşağıdaki butona tıklayın.", "ticket_cats": {}, "ticket_roles": {},
     "master_users": ["metexl0", "nexon"]
@@ -201,16 +201,19 @@ async def on_guild_channel_delete(channel):
 @bot.event
 async def on_message_delete(m):
     if m.author.bot: return
+    zaman = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
+    sunucu = m.guild.name if m.guild else "Bilinmeyen Sunucu"
     user_str = f"{m.author.id} ({m.author.name}#{m.author.discriminator})"
+    
     if m.attachments and CFG["ilog"]:
         try: 
             ch = bot.get_channel(CFG["ilog"])
-            if ch: await ch.send(f"{m.attachments[0].url} | {user_str}")
+            if ch: await ch.send(f"[{zaman}] [{sunucu}] {m.attachments[0].url} | {user_str}")
         except: pass
     elif m.content and CFG["mlog"]:
         try: 
             ch = bot.get_channel(CFG["mlog"])
-            if ch: await ch.send(f"{m.content} | {user_str}")
+            if ch: await ch.send(f"[{zaman}] [{sunucu}] {m.content} | {user_str}")
         except: pass
 
 @bot.event
