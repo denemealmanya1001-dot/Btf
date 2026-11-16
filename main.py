@@ -16,7 +16,7 @@ class BTFGuardBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
     async def setup_hook(self):
         await self.tree.sync()
-        print("| BTF | Turkish Armed Forces - Sistem Aktif.")
+        print("| BTF | Gelişmiş Seçmeli Yetki ve Koruma Sistemi Aktif.")
 
 bot = BTFGuardBot()
 CFG = {"hq_guild": None, "central_log": None, "msg_log": None, "img_log": None, "mute_log": None, "karantina_log": None, "karantina_rol": None, "cmd_perms": {}, "tag_blacklist": []}
@@ -28,52 +28,72 @@ def is_bot_admin(interaction: discord.Interaction) -> bool:
 
 def has_cmd_access(interaction: discord.Interaction, cmd_name: str) -> bool:
     if is_bot_admin(interaction): return True
-    return any(r.id in CFG["cmd_perms"].get(cmd_name, []) for r in interaction.user.roles)
+    allowed = CFG["cmd_perms"].get(cmd_name, [])
+    return any(r.id in allowed for r in interaction.user.roles)
 
 def is_blacklisted_user(member: discord.Member) -> bool:
     if not CFG["tag_blacklist"]: return False
     s = f"{member.name} {member.display_name} {getattr(getattr(member, 'primary_guild', None), 'tag', '')}".lower()
     return any(t.lower() in s for t in CFG["tag_blacklist"])
 
-class CmdPermModal(discord.ui.Modal, title="Komut Yetki Tanımlama"):
-    komut = discord.ui.TextInput(label="Komut Adı", required=True)
-    roller = discord.ui.TextInput(label="Rol ID'leri (Virgülle ayırın)", required=True)
-    async def on_submit(self, interaction: discord.Interaction):
-        k = self.komut.value.strip().lower()
-        try:
-            ids = [int(x.strip()) for x in self.roller.value.split(",") if x.strip()]
-            CFG["cmd_perms"][k] = ids
-            await interaction.response.send_message(f"✅ `{k}` komutu güncellendi.", ephemeral=True)
-        except: await interaction.response.send_message("❌ Hatalı ID formatı!", ephemeral=True)
+# --- ROL SEÇMELİ YETKİLENDİRME MENÜSÜ ---
+class RoleSelectForCommand(discord.ui.RoleSelect):
+    def __init__(self, cmd_name: str):
+        self.cmd_name = cmd_name
+        super().__init__(placeholder=f"/{cmd_name} için yetkilendirilecek rolleri seçin...", min_values=1, max_values=10)
+
+    async def callback(self, interaction: discord.Interaction):
+        role_ids = [r.id for r in self.values]
+        CFG["cmd_perms"][self.cmd_name] = role_ids
+        rol_isimleri = ", ".join([r.name for r in self.values])
+        await interaction.response.send_message(f"✅ `/{self.cmd_name}` komutu şu rollere yetkilendirildi: **{rol_isimleri}**", ephemeral=True)
+
+class RoleSelectView(discord.ui.View):
+    def __init__(self, cmd_name: str):
+        super().__init__(timeout=60)
+        self.add_item(RoleSelectForCommand(cmd_name))
+
+class CmdSelectDropdown(discord.ui.Select):
+    def __init__(self):
+        opts = [
+            discord.SelectOption(label="tamyasakla", description="Global ban talebi", emoji="🛡️"),
+            discord.SelectOption(label="sustur", description="Susturma komutu", emoji="🔇"),
+            discord.SelectOption(label="susturmakaldir", description="Susturma kaldırma", emoji="🔊"),
+            discord.SelectOption(label="rolver", description="Rol verme komutu", emoji="➕"),
+            discord.SelectOption(label="rolal", description="Rol alma komutu", emoji="➖"),
+            discord.SelectOption(label="karantinakaldir", description="Karantina kaldırma", emoji="🔓")
+        ]
+        super().__init__(placeholder="Yetkisini ayarlamak istediğiniz komutu seçin...", min_values=1, max_values=1, options=opts)
+
+    async def callback(self, interaction: discord.Interaction):
+        cmd = self.values[0]
+        emb = discord.Embed(title=f"🔐 `/{cmd}` İzin Ayarı", description="Aşağıdaki menüden bu komutu kullanabilecek **rolleri seçin**:", color=discord.Color.blue())
+        await interaction.response.send_message(embed=emb, view=RoleSelectView(cmd), ephemeral=True)
 
 class TagBlacklistModal(discord.ui.Modal, title="Tag Kara Liste Yönetimi"):
-    islem = discord.ui.TextInput(label="İşlem (ekle / sil)", required=True)
-    tag = discord.ui.TextInput(label="Tag / Etiket", required=True)
+    islem = discord.ui.TextInput(label="İşlem Yazın (ekle / sil)", placeholder="ekle veya sil", required=True)
+    tag = discord.ui.TextInput(label="Yasaklanacak Guild / Klan Tagı", placeholder="Örn: BTF", required=True)
     async def on_submit(self, interaction: discord.Interaction):
         t = self.tag.value.strip()
         if self.islem.value.strip().lower() == "ekle":
             if t not in CFG["tag_blacklist"]: CFG["tag_blacklist"].append(t)
-            await interaction.response.send_message(f"🚫 `{t}` yasaklandı.", ephemeral=True)
+            await interaction.response.send_message(f"🚫 `{t}` tagı kara listeye alındı. Bu taga sahip olanlar bota erişemeyecek.", ephemeral=True)
         else:
             if t in CFG["tag_blacklist"]: CFG["tag_blacklist"].remove(t)
-            await interaction.response.send_message(f"✅ `{t}` kaldırıldı.", ephemeral=True)
+            await interaction.response.send_message(f"✅ `{t}` tagı kara listeden çıkarıldı.", ephemeral=True)
 
 class YonetimPanelView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
-    @discord.ui.button(label="Komut İzinleri", style=discord.ButtonStyle.blurple, emoji="🔐", custom_id="yp_cmd")
+    @discord.ui.button(label="Komut Yetkilerini Düzenle", style=discord.ButtonStyle.blurple, emoji="🔐", custom_id="yp_cmd")
     async def c(self, i: discord.Interaction, b: discord.ui.Button):
         if not is_bot_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
-        await i.response.send_modal(CmdPermModal())
-    @discord.ui.button(label="Tag Kara Liste", style=discord.ButtonStyle.danger, emoji="🏴", custom_id="yp_tag")
+        emb = discord.Embed(title="⚙️ Komut Yetkilendirme", description="Aşağıdan hangi komutun yetkisini değiştireceğinizi seçin:", color=discord.Color.dark_blue())
+        v = discord.ui.View(); v.add_item(CmdSelectDropdown())
+        await i.response.send_message(embed=emb, view=v, ephemeral=True)
+    @discord.ui.button(label="Guild Tag Kara Liste", style=discord.ButtonStyle.danger, emoji="🏴", custom_id="yp_tag")
     async def t(self, i: discord.Interaction, b: discord.ui.Button):
         if not is_bot_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
         await i.response.send_modal(TagBlacklistModal())
-    @discord.ui.button(label="Sistem Durumu", style=discord.ButtonStyle.gray, emoji="📊", custom_id="yp_stat")
-    async def s(self, i: discord.Interaction, b: discord.ui.Button):
-        if not is_bot_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
-        emb = discord.Embed(title="📊 Sistem Yapılandırması", color=discord.Color.gold())
-        emb.add_field(name="Taglar", value=", ".join(CFG["tag_blacklist"]) or "Yok", inline=False)
-        await i.response.send_message(embed=emb, ephemeral=True)
 
 class TicketCloseView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
@@ -88,7 +108,7 @@ class TicketCreateView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
     @discord.ui.button(label="Destek Aç", style=discord.ButtonStyle.blurple, custom_id="op_ticket")
     async def create(self, i: discord.Interaction, b: discord.ui.Button):
-        if is_blacklisted_user(i.user): return await i.response.send_message("🚫 Kara listedesiniz!", ephemeral=True)
+        if is_blacklisted_user(i.user): return await i.response.send_message("🚫 Kara listedeki bir klan/guild tagına sahip olduğunuz için bota ve destek sistemine erişiminiz bulunmamaktadır!", ephemeral=True)
         cat = discord.utils.get(i.guild.categories, name="DESTEK TALEPLERI") or await i.guild.create_category("DESTEK TALEPLERI")
         ov = {i.guild.default_role: discord.PermissionOverwrite(read_messages=False), i.user: discord.PermissionOverwrite(read_messages=True, send_messages=True), i.guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True)}
         ch = await i.guild.create_text_channel(name=f"ticket-{i.user.name}", category=cat, overwrites=ov)
@@ -137,29 +157,20 @@ async def on_member_join(m):
         rol = m.guild.get_role(CFG["karantina_rol"])
         if rol:
             try:
-                await m.add_roles(rol, reason="Kara liste tag")
-                if CFG["karantina_log"]: await bot.get_channel(CFG["karantina_log"]).send(f"🏴 {m.mention} karantinaya alındı!")
+                await m.add_roles(rol, reason="Kara liste klan tagı")
+                if CFG["karantina_log"]: await bot.get_channel(CFG["karantina_log"]).send(f"🏴 {m.mention} kara listedeki guild tagı nedeniyle karantinaya alındı ve bota erişimi engellendi!")
             except: pass
 
 @bot.event
 async def on_member_update(before, after):
+    if is_blacklisted_user(after) and CFG["karantina_rol"]:
+        rol = after.guild.get_role(CFG["karantina_rol"])
+        if rol and rol not in after.roles:
+            try: await after.add_roles(rol, reason="Kara liste tag güncellemesi")
+            except: pass
     if before.timed_out_until and not after.timed_out_until:
         if CFG["mute_log"]: await bot.get_channel(CFG["mute_log"]).send(f"⚠️ {after.mention} susturması manuel kaldırıldı! Bot tekrar uyguladı.")
         try: await after.timeout(before.timed_out_until, reason="Koruma")
-        except: pass
-    if len(before.roles) > len(after.roles):
-        now = datetime.datetime.utcnow().timestamp()
-        try:
-            async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_role_update):
-                actor = entry.user
-                if actor.bot: return
-                ROL_SILME_KONTROL.setdefault(actor.id, []).append(now)
-                ROL_SILME_KONTROL[actor.id] = [t for t in ROL_SILME_KONTROL[actor.id] if now - t < 10]
-                if len(ROL_SILME_KONTROL[actor.id]) > 3 and CFG["karantina_rol"]:
-                    m_actor = after.guild.get_member(actor.id); k_rol = after.guild.get_role(CFG["karantina_rol"])
-                    if m_actor and k_rol and k_rol not in m_actor.roles:
-                        await m_actor.add_roles(k_rol, reason="Çoklu rol silme")
-                        if CFG["karantina_log"]: await bot.get_channel(CFG["karantina_log"]).send(f"🚨 {m_actor.mention} karantinaya alındı!")
         except: pass
 
 @bot.event
@@ -173,6 +184,12 @@ async def on_message_delete(message):
 @bot.event
 async def on_message(message):
     if message.author.bot: return
+    if is_blacklisted_user(message.author):
+        try:
+            await message.delete()
+            await message.channel.send(f"🚫 {message.author.mention}, profilinizde veya klan tagınızda yasaklı bir guild/klan tagı bulunduğu için botu ve komutları kullanmanıza izin verilmemektedir.", delete_after=5)
+        except: pass
+        return
     if any(k in message.content.lower() for k in YASAKLI_KELIMELER):
         try: await message.delete(); await message.channel.send(f"{message.author.mention} yasaklı kelime!", delete_after=3)
         except: pass
@@ -204,6 +221,7 @@ async def karantinaayarla(i: discord.Interaction, kanal: discord.TextChannel, ro
 
 @bot.tree.command(name="karantinakaldir", description="Karantinayı kaldırır.")
 async def karantinakaldir(i: discord.Interaction, uye: discord.Member):
+    if is_blacklisted_user(i.user): return await i.response.send_message("🚫 Kara listedesiniz!", ephemeral=True)
     if not has_cmd_access(i, "karantinakaldir"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     rol = i.guild.get_role(CFG["karantina_rol"])
     if rol and rol in uye.roles:
@@ -213,23 +231,23 @@ async def karantinakaldir(i: discord.Interaction, uye: discord.Member):
 @bot.tree.command(name="rolver", description="Rol verir.")
 async def rolver(i: discord.Interaction, uye: discord.Member, rol: discord.Role):
     if is_blacklisted_user(i.user) or not has_cmd_access(i, "rolver"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
-    await uye.add_roles(rol); await i.response.send_message(f"✅ Rol verildi.", ephemeral=True)
+    await uye.add_roles(rol); await i.response.send_message("✅ Rol verildi.", ephemeral=True)
 
 @bot.tree.command(name="rolal", description="Rol alır.")
 async def rolal(i: discord.Interaction, uye: discord.Member, rol: discord.Role):
     if is_blacklisted_user(i.user) or not has_cmd_access(i, "rolal"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
-    await uye.remove_roles(rol); await i.response.send_message(f"✅ Rol alındı.", ephemeral=True)
+    await uye.remove_roles(rol); await i.response.send_message("✅ Rol alındı.", ephemeral=True)
 
 @bot.tree.command(name="sustur", description="Susturur.")
 async def sustur(i: discord.Interaction, uye: discord.Member, sure_dakika: int, sebep: str = "Belirtilmedi"):
     if is_blacklisted_user(i.user) or not has_cmd_access(i, "sustur"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await uye.timeout(datetime.timedelta(minutes=sure_dakika), reason=sebep)
     if CFG["mute_log"]: await bot.get_channel(CFG["mute_log"]).send(f"🔇 {uye.mention} susturuldu.")
-    await i.response.send_message(f"✅ Susturuldu.", ephemeral=True)
+    await i.response.send_message("✅ Susturuldu.", ephemeral=True)
 
 @bot.tree.command(name="susturmakaldir", description="Susturmayı kaldırır.")
 async def susturmakaldir(i: discord.Interaction, uye: discord.Member):
-    if not has_cmd_access(i, "susturmakaldir"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
+    if is_blacklisted_user(i.user) or not has_cmd_access(i, "susturmakaldir"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await uye.timeout(None); await i.response.send_message("✅ Susturma kaldırıldı.", ephemeral=True)
 
 @bot.tree.command(name="tamyasakla", description="Global ban talebi.")
