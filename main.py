@@ -7,7 +7,7 @@ intents.guilds = intents.members = intents.message_content = intents.guild_messa
 
 class BTFGuardBot(commands.Bot):
     def __init__(self): super().__init__(command_prefix="!", intents=intents)
-    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Master Sistem Aktif.")
+    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Güncellenmiş Sistem Aktif.")
 
 bot = BTFGuardBot()
 CFG = {
@@ -201,15 +201,16 @@ async def on_guild_channel_delete(channel):
 @bot.event
 async def on_message_delete(m):
     if m.author.bot: return
+    user_str = f"{m.author.id} ({m.author.name}#{m.author.discriminator})"
     if m.attachments and CFG["ilog"]:
         try: 
             ch = bot.get_channel(CFG["ilog"])
-            if ch: await ch.send(embed=discord.Embed(title=f"🖼️ Silinen Görsel [{m.guild.name}]", color=discord.Color.purple()).add_field(name="Kullanıcı", value=m.author.mention).set_image(url=m.attachments[0].url))
+            if ch: await ch.send(f"{m.attachments[0].url} | {user_str}")
         except: pass
-    if m.content and CFG["mlog"]:
+    elif m.content and CFG["mlog"]:
         try: 
             ch = bot.get_channel(CFG["mlog"])
-            if ch: await ch.send(embed=discord.Embed(title=f"🗑️ Silinen Mesaj [{m.guild.name}]", color=discord.Color.orange()).add_field(name="Kullanıcı", value=m.author.mention).add_field(name="İçerik", value=m.content[:1024]))
+            if ch: await ch.send(f"{m.content} | {user_str}")
         except: pass
 
 @bot.event
@@ -227,7 +228,7 @@ async def on_message(m):
 
 @bot.tree.command(name="bot-yetkili-ayarla", description="Master bot yetkilisi ekler/kaldırır.")
 async def bot_yetkili_ayarla(i: discord.Interaction, islem: str, kullanici_adi: str):
-    if not is_master(i.user): return await i.response.send_message("❌ Bu komutu yalnızca master yetkililer (`metexl0`, `neXon`) kullanabilir!", ephemeral=True)
+    if not is_master(i.user): return await i.response.send_message("❌ Yalnızca master yetkililer kullanabilir!", ephemeral=True)
     username = kullanici_adi.strip().lower()
     if islem.strip().lower() == "ekle":
         if username not in CFG["master_users"]: CFG["master_users"].append(username)
@@ -252,7 +253,7 @@ async def gkb_yasakla(i: discord.Interaction, uye_id: str, sebep: str):
         except: pass
     if CFG["blog"]: 
         ch = bot.get_channel(CFG["blog"])
-        if ch: await ch.send(embed=discord.Embed(title=f"⭐ GKB Yasak [{i.guild.name}]", description=f"ID: `{uid}`\nSebep: {sebep}", color=discord.Color.gold()))
+        if ch: await ch.send(f"⭐ GKB Yasak | {uid} - Sebep: {sebep} [{i.guild.name}]")
     await i.followup.send(f"⭐ GKB emri uygulandı. {cnt} sunucuda banlandı.", ephemeral=True)
 
 @bot.tree.command(name="tam-yasak-at", description="Merkez onaylı ban talebi")
@@ -368,10 +369,10 @@ async def merkez_onay_log(i: discord.Interaction, kanal: discord.TextChannel):
     CFG["hq"], CFG["clog"] = kanal.guild.id, kanal.id
     await i.response.send_message(f"✅ Merkez onay kanalı {kanal.mention} olarak ayarlandı.", ephemeral=True)
 
-@bot.tree.command(name="log-ayarla", description="Log kanallarını ve karantinayı seç")
-async def log_ayarla(i: discord.Interaction, mesaj_log: discord.TextChannel, gorsel_log: discord.TextChannel, susturma_log: discord.TextChannel, ban_log: discord.TextChannel, karantina_log: discord.TextChannel, karantina_rol: discord.Role):
+@bot.tree.command(name="log-ayarla", description="Log kanallarını seç")
+async def log_ayarla(i: discord.Interaction, mesaj_log: discord.TextChannel, gorsel_log: discord.TextChannel, susturma_log: discord.TextChannel, ban_log: discord.TextChannel, karantina_log: discord.TextChannel):
     if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
-    CFG["mlog"], CFG["ilog"], CFG["slog"], CFG["blog"], CFG["klog"], CFG["krol"] = mesaj_log.id, gorsel_log.id, susturma_log.id, ban_log.id, karantina_log.id, karantina_rol.id
+    CFG["mlog"], CFG["ilog"], CFG["slog"], CFG["blog"], CFG["klog"] = mesaj_log.id, gorsel_log.id, susturma_log.id, ban_log.id, karantina_log.id
     await i.response.send_message("✅ Tüm terminal log kanalları başarıyla ayarlandı.", ephemeral=True)
 
 @bot.tree.command(name="bot-yönetim-paneli", description="Yönetim paneli")
