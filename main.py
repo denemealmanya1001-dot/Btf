@@ -34,7 +34,7 @@ CFG = load_config()
 
 class BTFGuardBot(commands.Bot):
     def __init__(self): super().__init__(command_prefix="!", intents=intents)
-    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Bot Aktif ve Kararlı.")
+    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Tam Yasak Yetkilisi Etiketleme Aktif.")
 
 bot = BTFGuardBot()
 YASAKLI = ["kufur1", "reklamlinki"]
@@ -181,13 +181,10 @@ class BanOnayView(discord.ui.View):
     def __init__(self, uid: int, reason: str, kanit: str, gorsel: str, requester: str):
         super().__init__(timeout=None)
         self.uid, self.reason, self.kanit, self.gorsel, self.requester = uid, reason, kanit, gorsel, requester
-        
-        # Kanıt görseli varsa link butonuna URL'yi ekle, yoksa butonu devre dışı bırak
         if gorsel:
             self.add_item(discord.ui.Button(label="Kanıtı Aç", style=discord.ButtonStyle.link, url=gorsel))
         else:
-            btn = discord.ui.Button(label="Kanıt Bulunmuyor", style=discord.ButtonStyle.secondary, disabled=True)
-            self.add_item(btn)
+            self.add_item(discord.ui.Button(label="Kanıt Bulunmuyor", style=discord.ButtonStyle.secondary, disabled=True))
 
     @discord.ui.button(label="Onayla", style=discord.ButtonStyle.green, custom_id="g_ban")
     async def gban(self, i: discord.Interaction, b: discord.ui.Button):
@@ -381,7 +378,7 @@ async def tam_yasak_at(i: discord.Interaction, uye_id: str, sebep: str, kanit_me
     await i.response.defer(ephemeral=True)
     try: uid = int(uye_id)
     except: return await i.followup.send("Geçersiz ID!", ephemeral=True)
-    if not CFG["hq"] or not CFG["clog"]: return await i.followup.send("Merkez log ayarlanmamış!", ephemeral=True)
+    if not CFG["hq"] or not CFG["clog"]: return await i.response.send_message("Merkez log ayarlanmamış!", ephemeral=True)
     
     emb = discord.Embed(
         title="🔨 Tam Yasak Onayı Bekliyor",
@@ -390,9 +387,19 @@ async def tam_yasak_at(i: discord.Interaction, uye_id: str, sebep: str, kanit_me
     )
     emb.set_image(url=kanit_gorsel.url)
     
-    terminal_ch = bot.get_guild(CFG["hq"]).get_channel(CFG["clog"])
+    terminal_guild = bot.get_guild(CFG["hq"])
+    terminal_ch = terminal_guild.get_channel(CFG["clog"]) if terminal_guild else None
     if terminal_ch:
-        await terminal_ch.send(content="@itifik Ordusu Yönetimi", embed=emb, view=BanOnayView(uid, sebep, kanit_metni, kanit_gorsel.url, f"{i.user.mention} (`@{i.user.name}`)"))
+        role_mention = ""
+        role_obj = discord.utils.get(terminal_guild.roles, name="Tam Yasak Yetkilisi")
+        if role_obj:
+            role_mention = role_obj.mention
+        else:
+            role_obj2 = discord.utils.get(terminal_guild.roles, name="Bot Yönetim +")
+            if role_obj2: role_mention = role_obj2.mention
+
+        msg_content = f"{role_mention} [ Tam Yasak Onayı ]" if role_mention else "[ Tam Yasak Onayı ]"
+        await terminal_ch.send(content=msg_content, embed=emb, view=BanOnayView(uid, sebep, kanit_metni, kanit_gorsel.url, f"{i.user.mention} (`@{i.user.name}`)"))
         await i.followup.send("✅ Yasak talebi terminal sunucusuna gönderildi.", ephemeral=True)
     else: await i.followup.send("❌ Terminal kanal bulunamadı!", ephemeral=True)
 
@@ -410,9 +417,20 @@ async def tam_yasak_kaldır(i: discord.Interaction, uye_id: str, sebep: str):
         description=f"**İsteği atan:** {i.user.mention} (`@{i.user.name}`)\n**Hedef:** {user.mention} (`{uid}`)\n**Sebep:** {sebep}",
         color=discord.Color.blue()
     )
-    terminal_ch = bot.get_guild(CFG["hq"]).get_channel(CFG["clog"])
+    
+    terminal_guild = bot.get_guild(CFG["hq"])
+    terminal_ch = terminal_guild.get_channel(CFG["clog"]) if terminal_guild else None
     if terminal_ch:
-        await terminal_ch.send(content="@itifik Ordusu Yönetimi", embed=emb, view=UnbanOnayView(uid, sebep, f"{i.user.mention} (`@{i.user.name}`)"))
+        role_mention = ""
+        role_obj = discord.utils.get(terminal_guild.roles, name="Tam Yasak Yetkilisi")
+        if role_obj:
+            role_mention = role_obj.mention
+        else:
+            role_obj2 = discord.utils.get(terminal_guild.roles, name="Bot Yönetim +")
+            if role_obj2: role_mention = role_obj2.mention
+
+        msg_content = f"{role_mention} [ Tam Yasak Kaldırma Onayı ]" if role_mention else "[ Tam Yasak Kaldırma Onayı ]"
+        await terminal_ch.send(content=msg_content, embed=emb, view=UnbanOnayView(uid, sebep, f"{i.user.mention} (`@{i.user.name}`)"))
         await i.followup.send("✅ Unban talebi terminal sunucusuna merkez onaya gönderildi.", ephemeral=True)
     else: await i.followup.send("❌ Terminal kanal bulunamadı!", ephemeral=True)
 
