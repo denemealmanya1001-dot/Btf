@@ -34,13 +34,34 @@ CFG = load_config()
 
 class BTFGuardBot(commands.Bot):
     def __init__(self): super().__init__(command_prefix="!", intents=intents)
-    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Onaylı Unban Sistemi Aktif.")
+    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Doğal Süre ve Kanıtlı Susturma Aktif.")
 
 bot = BTFGuardBot()
 YASAKLI = ["kufur1", "reklamlinki"]
 ROL_SILME = {}
 KANAL_SILME = {}
 TAG_UYARI = "Guild Tagını Kullanmakta Olduğunuz Sunucunun Bot Kullanımı Yasaklanmıştır. Botu Kullanmak İçin Tagı Değiştirin/Kaldırın !"
+
+def parse_time(time_str: str) -> int:
+    time_str = time_str.lower().strip()
+    total_minutes = 0
+    parts = time_str.split()
+    i = 0
+    while i < len(parts):
+        try:
+            val = int(parts[i])
+            if i + 1 < len(parts):
+                unit = parts[i+1]
+                if "dakika" in unit or unit.startswith("d") or unit == "m": total_minutes += val
+                elif "saat" in unit or unit.startswith("s") or unit == "h": total_minutes += val * 60
+                elif "gün" in unit or unit.startswith("g") or unit == "d": total_minutes += val * 1440
+                elif "hafta" in unit or unit.startswith("h") or unit == "w": total_minutes += val * 10080
+                elif "ay" in unit or unit.startswith("a"): total_minutes += val * 43200
+                i += 2
+            else:
+                total_minutes += val; i += 1
+        except: i += 1
+    return total_minutes if total_minutes > 0 else 60
 
 def is_master(u: discord.User) -> bool: return u.name.lower() in CFG["master_users"]
 def is_admin(i: discord.Interaction) -> bool:
@@ -330,7 +351,6 @@ async def tam_yasak_kaldır(i: discord.Interaction, uye_id: str, sebep: str):
     try: uid = int(uye_id); user = await bot.fetch_user(uid)
     except: return await i.followup.send("Kullanıcı bulunamadı.", ephemeral=True)
     if not CFG["hq"] or not CFG["clog"]: return await i.followup.send("Merkez log ayarlanmamış!", ephemeral=True)
-    
     emb = discord.Embed(title=f"🔓 Merkez Onaylı Unban Talebi [{i.guild.name}]", description=f"Kullanıcı: {user} (`{uid}`)\nSebep: {sebep}\nTalep Eden: {i.user.mention}", color=discord.Color.blue())
     terminal_ch = bot.get_guild(CFG["hq"]).get_channel(CFG["clog"])
     if terminal_ch:
@@ -338,15 +358,24 @@ async def tam_yasak_kaldır(i: discord.Interaction, uye_id: str, sebep: str):
         await i.followup.send("✅ Unban talebi terminal sunucusuna merkez onaya gönderildi.", ephemeral=True)
     else: await i.followup.send("❌ Terminal kanal bulunamadı!", ephemeral=True)
 
-@bot.tree.command(name="sustur", description="Sustur")
-async def sustur(i: discord.Interaction, uye: discord.Member, sure_dakika: int, sebep: str = "Belirtilmedi"):
+@bot.tree.command(name="sustur", description="Kullanıcıyı süreli susturur (Örn: 28 gün)")
+async def sustur(i: discord.Interaction, uye: discord.Member, sure: str, sebep: str, kanit_gorsel: discord.Attachment):
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not has_perm(i, "sustur"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
-    await uye.timeout(datetime.timedelta(minutes=sure_dakika), reason=sebep)
-    if CFG["slog"]: 
+    await i.response.defer(ephemeral=True)
+    
+    total_minutes = parse_time(sure)
+    await uye.timeout(datetime.timedelta(minutes=total_minutes), reason=sebep)
+    
+    if CFG["slog"]:
         ch = bot.get_channel(CFG["slog"])
-        if ch: await ch.send(f"🔇 **[{i.guild.name}]** {uye.mention} susturuldu.")
-    await i.response.send_message("✅ Susturuldu.", ephemeral=True)
+        if ch:
+            emb = discord.Embed(title="🎙️ Susturma İşlemi", description=f"{i.user.mention} (`@{i.user.name}`) tarafından\n{uye.mention} (`@{uye.name}`) kullanıcısı\n{sebep} sebebiyle **{sure}** susturuldu.", color=discord.Color.dark_embed())
+            emb.add_field(name="Görsel Kanıt", value="\u200b", inline=False)
+            emb.set_image(url=kanit_gorsel.url)
+            await ch.send(embed=emb)
+            
+    await i.followup.send(f"✅ {uye.mention} başarıyla {sure} süreyle susturuldu.", ephemeral=True)
 
 @bot.tree.command(name="susturma-kaldır", description="Susturma kaldır")
 async def susturma_kaldır(i: discord.Interaction, uye: discord.Member):
