@@ -34,7 +34,7 @@ CFG = load_config()
 
 class BTFGuardBot(commands.Bot):
     def __init__(self): super().__init__(command_prefix="!", intents=intents)
-    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Görsel Şablon Onay Sistemi Aktif.")
+    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Bot Aktif ve Kararlı.")
 
 bot = BTFGuardBot()
 YASAKLI = ["kufur1", "reklamlinki"]
@@ -181,14 +181,20 @@ class BanOnayView(discord.ui.View):
     def __init__(self, uid: int, reason: str, kanit: str, gorsel: str, requester: str):
         super().__init__(timeout=None)
         self.uid, self.reason, self.kanit, self.gorsel, self.requester = uid, reason, kanit, gorsel, requester
-    
-    @discord.ui.button(label="Kanıtı Aç", style=discord.ButtonStyle.link, url="https://discord.com")
-    async def link_btn(self, i: discord.Interaction, b: discord.ui.Button): pass
+        
+        # Kanıt görseli varsa link butonuna URL'yi ekle, yoksa butonu devre dışı bırak
+        if gorsel:
+            self.add_item(discord.ui.Button(label="Kanıtı Aç", style=discord.ButtonStyle.link, url=gorsel))
+        else:
+            btn = discord.ui.Button(label="Kanıt Bulunmuyor", style=discord.ButtonStyle.secondary, disabled=True)
+            self.add_item(btn)
 
     @discord.ui.button(label="Onayla", style=discord.ButtonStyle.green, custom_id="g_ban")
     async def gban(self, i: discord.Interaction, b: discord.ui.Button):
         if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
-        for c in self.children: c.disabled = True
+        for child in self.children:
+            if isinstance(child, discord.ui.Button) and child.style != discord.ButtonStyle.link:
+                child.disabled = True
         
         CFG["ban_records"][str(self.uid)] = {"reason": self.reason, "admin": str(i.user), "proof": self.gorsel}
         save_config()
@@ -202,9 +208,6 @@ class BanOnayView(discord.ui.View):
         await i.message.edit(view=self, embed=emb)
         
         cnt = 0
-        try: target_user = await bot.fetch_user(self.uid)
-        except: target_user = None
-
         for g in bot.guilds:
             try:
                 m = await g.fetch_member(self.uid)
@@ -225,7 +228,9 @@ class BanOnayView(discord.ui.View):
     @discord.ui.button(label="Reddet", style=discord.ButtonStyle.red, custom_id="g_app")
     async def app(self, i: discord.Interaction, b: discord.ui.Button):
         if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
-        for c in self.children: c.disabled = True
+        for child in self.children:
+            if isinstance(child, discord.ui.Button) and child.style != discord.ButtonStyle.link:
+                child.disabled = True
         
         emb = discord.Embed(
             title="❌ İstek Reddedildi",
