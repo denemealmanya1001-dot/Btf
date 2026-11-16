@@ -1,21 +1,42 @@
-import os, datetime, asyncio, discord
+import os, datetime, asyncio, json, discord
 from discord.ext import commands
 from discord import app_commands
 
 intents = discord.Intents.default()
 intents.guilds = intents.members = intents.message_content = intents.guild_messages = intents.moderation = True
 
-class BTFGuardBot(commands.Bot):
-    def __init__(self): super().__init__(command_prefix="!", intents=intents)
-    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Detaylı Log Sistemi Aktif.")
-
-bot = BTFGuardBot()
-CFG = {
+CONFIG_FILE = "config.json"
+DEFAULT_CFG = {
     "hq": None, "clog": None, "mlog": None, "ilog": None, "slog": None, "blog": None, "klog": None,
     "perms": {}, "tags": [], "gkb_bans": [], "limit": 3, "guard": True, "chan_limit": 2, "admin_guard": True,
     "ticket_title": "Destek Merkezi", "ticket_desc": "Destek açmak için aşağıdaki butona tıklayın.", "ticket_cats": {}, "ticket_roles": {},
-    "master_users": ["metexl0", "nexon"]
+    "master_users": ["metexl0", "nexon"], "ban_records": {}
 }
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                for k, v in DEFAULT_CFG.items():
+                    if k not in data: data[k] = v
+                return data
+        except: pass
+    return DEFAULT_CFG.copy()
+
+def save_config():
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(CFG, f, ensure_ascii=False, indent=4)
+    except: pass
+
+CFG = load_config()
+
+class BTFGuardBot(commands.Bot):
+    def __init__(self): super().__init__(command_prefix="!", intents=intents)
+    async def setup_hook(self): await self.tree.sync(); print("| BTF | Turkish Armed Forces - Kalıcı Ayar Sistemi Aktif.")
+
+bot = BTFGuardBot()
 YASAKLI = ["kufur1", "reklamlinki"]
 ROL_SILME = {}
 KANAL_SILME = {}
@@ -42,7 +63,7 @@ class RoleSelectCmd(discord.ui.RoleSelect):
         self.cmd = cmd
         super().__init__(placeholder=f"/{cmd} için yetkili rolleri seçin...", min_values=1, max_values=10)
     async def callback(self, i: discord.Interaction):
-        CFG["perms"][self.cmd] = [r.id for r in self.values]
+        CFG["perms"][self.cmd] = [r.id for r in self.values]; save_config()
         await i.response.send_message(f"✅ `/{self.cmd}` yetkileri güncellendi.", ephemeral=True)
 
 class CmdSelect(discord.ui.Select):
@@ -59,17 +80,17 @@ class TagModal(discord.ui.Modal, title="Tag Kara Liste Yönetimi"):
     async def on_submit(self, i: discord.Interaction):
         t = self.tag.value.strip()
         if self.islem.value.strip().lower() == "ekle":
-            if t not in CFG["tags"]: CFG["tags"].append(t)
+            if t not in CFG["tags"]: CFG["tags"].append(t); save_config()
             await i.response.send_message(f"🚫 `{t}` kara listeye alındı.", ephemeral=True)
         else:
-            if t in CFG["tags"]: CFG["tags"].remove(t)
+            if t in CFG["tags"]: CFG["tags"].remove(t); save_config()
             await i.response.send_message(f"✅ `{t}` listeden çıkarıldı.", ephemeral=True)
 
 class GuardModal(discord.ui.Modal, title="Guard Limit Ayarları"):
     kan_lim = discord.ui.TextInput(label="Kanal Silme Sınırı", placeholder="2", required=True)
     async def on_submit(self, i: discord.Interaction):
         try:
-            CFG["chan_limit"] = int(self.kan_lim.value.strip())
+            CFG["chan_limit"] = int(self.kan_lim.value.strip()); save_config()
             await i.response.send_message("✅ Guard sınırları güncellendi.", ephemeral=True)
         except: await i.response.send_message("❌ Geçersiz sayı!", ephemeral=True)
 
@@ -100,14 +121,14 @@ class YonetimView(discord.ui.View):
 
 class GuardView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
-    @discord.ui.button(label="Guard Limitlerini Değiştir", style=discord.ButtonStyle.blurple, emoji="🛡️", custom_id="gp_lim")
+    @discord.ui.button(label="Guard Limitini Değiştir", style=discord.ButtonStyle.blurple, emoji="🛡️", custom_id="gp_lim")
     async def l(self, i: discord.Interaction, b: discord.ui.Button):
         if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
         await i.response.send_modal(GuardModal())
     @discord.ui.button(label="Yönetici Rol Koruması", style=discord.ButtonStyle.gray, emoji="⚡", custom_id="gp_adm")
     async def adm(self, i: discord.Interaction, b: discord.ui.Button):
         if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
-        CFG["admin_guard"] = not CFG["admin_guard"]
+        CFG["admin_guard"] = not CFG["admin_guard"]; save_config()
         await i.response.send_message(f"⚡ Yönetici Koruması: **{'Aktif' if CFG['admin_guard'] else 'Pasif'}**", ephemeral=True)
 
 class TicketClose(discord.ui.View):
@@ -136,8 +157,8 @@ class TicketView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None); self.add_item(TicketCreateSelect())
 
 class BanOnayView(discord.ui.View):
-    def __init__(self, uid: int, reason: str, kanit: str, gorsel: str, source_guild: str):
-        super().__init__(timeout=None); self.uid, self.reason, self.kanit, self.gorsel, self.source_guild = uid, reason, kanit, gorsel, source_guild
+    def __init__(self, uid: int, reason: str, kanit: str, gorsel: str, source_guild: str, admin_user: str):
+        super().__init__(timeout=None); self.uid, self.reason, self.kanit, self.gorsel, self.source_guild, self.admin_user = uid, reason, kanit, gorsel, source_guild, admin_user
     @discord.ui.button(label="Reddet", style=discord.ButtonStyle.green, custom_id="g_app")
     async def app(self, i: discord.Interaction, b: discord.ui.Button):
         if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
@@ -148,6 +169,10 @@ class BanOnayView(discord.ui.View):
     async def gban(self, i: discord.Interaction, b: discord.ui.Button):
         if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
         for c in self.children: c.disabled = True
+        
+        CFG["ban_records"][str(self.uid)] = {"reason": self.reason, "admin": self.admin_user, "proof": self.gorsel}
+        save_config()
+        
         emb = i.message.embeds[0]; emb.color = discord.Color.dark_red(); emb.add_field(name="Durum", value=f"Onaylandı ({self.source_guild}) - {i.user.mention}")
         await i.message.edit(view=self, embed=emb); cnt = 0
         for g in bot.guilds:
@@ -234,10 +259,10 @@ async def bot_yetkili_ayarla(i: discord.Interaction, islem: str, kullanici_adi: 
     if not is_master(i.user): return await i.response.send_message("❌ Yalnızca master yetkililer kullanabilir!", ephemeral=True)
     username = kullanici_adi.strip().lower()
     if islem.strip().lower() == "ekle":
-        if username not in CFG["master_users"]: CFG["master_users"].append(username)
+        if username not in CFG["master_users"]: CFG["master_users"].append(username); save_config()
         await i.response.send_message(f"✅ `{username}` master yetkili olarak eklendi.", ephemeral=True)
     else:
-        if username in CFG["master_users"]: CFG["master_users"].remove(username)
+        if username in CFG["master_users"]: CFG["master_users"].remove(username); save_config()
         await i.response.send_message(f"✅ `{username}` master yetkisi kaldırıldı.", ephemeral=True)
 
 @bot.tree.command(name="gkb-yasakla", description="GKB global ban")
@@ -247,7 +272,11 @@ async def gkb_yasakla(i: discord.Interaction, uye_id: str, sebep: str):
     await i.response.defer(ephemeral=True)
     try: uid = int(uye_id)
     except: return await i.followup.send("Geçersiz ID!", ephemeral=True)
+    
     if uid not in CFG["gkb_bans"]: CFG["gkb_bans"].append(uid)
+    CFG["ban_records"][str(uid)] = {"reason": sebep, "admin": str(i.user), "proof": None}
+    save_config()
+    
     cnt = 0
     for g in bot.guilds:
         try:
@@ -273,7 +302,7 @@ async def tam_yasak_at(i: discord.Interaction, uye_id: str, sebep: str, kanit_me
     
     terminal_ch = bot.get_guild(CFG["hq"]).get_channel(CFG["clog"])
     if terminal_ch:
-        await terminal_ch.send(embed=emb, view=BanOnayView(uid, sebep, kanit_metni, kanit_gorsel.url, i.guild.name))
+        await terminal_ch.send(embed=emb, view=BanOnayView(uid, f"{sebep} | Kanıt: {kanit_metni}", kanit_metni, kanit_gorsel.url, i.guild.name, str(i.user)))
         await i.followup.send("✅ Yasak talebi terminal sunucusuna gönderildi.", ephemeral=True)
     else: await i.followup.send("❌ Terminal kanal bulunamadı!", ephemeral=True)
 
@@ -282,7 +311,9 @@ async def tam_yasak_kaldır(i: discord.Interaction, uye_id: str):
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not has_perm(i, "tam-yasak-kaldır"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await i.response.defer(ephemeral=True)
-    try: uid = int(uye_id); user = await bot.fetch_user(uid)
+    try: 
+        uid = int(uye_id); user = await bot.fetch_user(uid)
+        if str(uid) in CFG["ban_records"]: del CFG["ban_records"][str(uid)]; save_config()
     except: return await i.followup.send("Bulunamadı.", ephemeral=True)
     cnt = 0
     for g in bot.guilds:
@@ -318,19 +349,31 @@ async def rol_al(i: discord.Interaction, uye: discord.Member, rol: discord.Role)
     if not has_perm(i, "rol-al"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await uye.remove_roles(rol); await i.response.send_message("✅ Rol alındı.", ephemeral=True)
 
-@bot.tree.command(name="yasak-sorgu", description="Kullanıcı ban sorgula")
+@bot.tree.command(name="yasak-sorgu", description="Kullanıcı ban durumunu, sebebini ve kanıtını sorgula")
 async def yasak_sorgu(i: discord.Interaction, uye_id: str):
     if is_bl(i.user): return await i.response.send_message(TAG_UYARI, ephemeral=True)
     if not has_perm(i, "yasak-sorgu"): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     await i.response.defer(ephemeral=True)
     try: uid = int(uye_id); user = await bot.fetch_user(uid)
     except: return await i.followup.send("Kullanıcı bulunamadı.", ephemeral=True)
+    
     yasaklar = []
     for g in bot.guilds:
         try: await g.fetch_ban(user); yasaklar.append(g.name)
         except: pass
-    emb = discord.Embed(title="🔍 Yasak Sorgulama", description=f"Kullanıcı: {user} (`{user.id}`)", color=discord.Color.blue())
-    emb.add_field(name="Yasaklı Olduğu Sunucular", value=", ".join(yasaklar) if yasaklar else "Yasak yok.", inline=False)
+        
+    record = CFG["ban_records"].get(str(uid))
+    emb = discord.Embed(title="🔍 Detaylı Yasak Sorgulama", description=f"Kullanıcı: {user} (`{user.id}`)", color=discord.Color.red() if yasaklar else discord.Color.green())
+    emb.add_field(name="Yasaklı Olduğu Sunucular", value=", ".join(yasaklar) if yasaklar else "Hiçbir sunucuda yasağı yok.", inline=False)
+    
+    if record:
+        emb.add_field(name="Ban Sebebi", value=record.get("reason", "Belirtilmedi"), inline=False)
+        emb.add_field(name="Yasaklayan Yetkili", value=record.get("admin", "Bilinmiyor"), inline=False)
+        if record.get("proof"):
+            emb.set_image(url=record["proof"])
+    else:
+        emb.add_field(name="Not", value="Bu kullanıcı için sistemde kayıtlı bir ban gerekçesi/kanıtı bulunamadı.", inline=False)
+        
     await i.followup.send(embed=emb, ephemeral=True)
 
 @bot.tree.command(name="dm-mesaj", description="DM gönder")
@@ -364,19 +407,22 @@ async def ticket_yönetim_paneli(i: discord.Interaction, baslik: str, aciklama: 
         r_ids = [int(x.strip().replace("<@&","").replace(">","")) for x in etiketlenecek_roller.split(",") if x.strip()]
         CFG["ticket_roles"][kategori_adi] = r_ids
     except: pass
+    save_config()
     await i.response.send_message(f"✅ `{kategori_adi}` kategorisi eklendi.", ephemeral=True)
 
 @bot.tree.command(name="merkez-onay-log", description="Merkez onay kanalını seç")
 async def merkez_onay_log(i: discord.Interaction, kanal: discord.TextChannel):
     if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     CFG["hq"], CFG["clog"] = kanal.guild.id, kanal.id
-    await i.response.send_message(f"✅ Merkez onay kanalı {kanal.mention} olarak ayarlandı.", ephemeral=True)
+    save_config()
+    await i.response.send_message(f"✅ Merkez onay kanalı {kanal.mention} olarak ayarlandı ve kaydedildi.", ephemeral=True)
 
 @bot.tree.command(name="log-ayarla", description="Log kanallarını seç")
 async def log_ayarla(i: discord.Interaction, mesaj_log: discord.TextChannel, gorsel_log: discord.TextChannel, susturma_log: discord.TextChannel, ban_log: discord.TextChannel, karantina_log: discord.TextChannel):
     if not is_admin(i): return await i.response.send_message("❌ Yetkiniz yok!", ephemeral=True)
     CFG["mlog"], CFG["ilog"], CFG["slog"], CFG["blog"], CFG["klog"] = mesaj_log.id, gorsel_log.id, susturma_log.id, ban_log.id, karantina_log.id
-    await i.response.send_message("✅ Tüm terminal log kanalları başarıyla ayarlandı.", ephemeral=True)
+    save_config()
+    await i.response.send_message("✅ Tüm terminal log kanalları başarıyla ayarlandı ve kalıcı olarak kaydedildi.", ephemeral=True)
 
 @bot.tree.command(name="bot-yönetim-paneli", description="Yönetim paneli")
 async def bot_yönetim_paneli(i: discord.Interaction):
